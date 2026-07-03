@@ -20,7 +20,7 @@ dependencies = [
     "jsonschema>=4.5.1",      # 4.5.1+ is safe across libraries
     "pydantic>=2.0",          # Major version 2 required if you're using v2 features
     "GitPython",
-    "hf-xet>=1.4.3",
+    "hf-xet==1.4.3",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
