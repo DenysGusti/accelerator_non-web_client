@@ -9,7 +9,7 @@ import typer
 from rich import print
 from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn
 
-DEFAULT_VERSION = "v0.6.5-acc-pr140"
+DEFAULT_VERSION = "v0.6.5-acc-pr140-p4"
 BINARY_DIR = Path.home() / ".accli" / "bin"
 
 # Regex to safely validate version strings to prevent URL manipulation or directory traversal
