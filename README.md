@@ -94,8 +94,8 @@ Usage: accli [OPTIONS] COMMAND [ARGS]...
 
 ### Handling self-signed certificates
 
-1. Copy and paste certificates from `<control_services_backend>/certs/public.crt` as
-   `./certs/dev-backend.crt` and `<accelerator_service>/minio_certs/public.crt` as
+1. Copy and paste certificates from `<control_services_backend>/certs/ca.crt` as
+   `./certs/dev-backend.crt` and `<accelerator_service>/minio_certs/ca.crt` as
    `./certs/dev-minio-ca.crt`.
 2. Run
    ```
