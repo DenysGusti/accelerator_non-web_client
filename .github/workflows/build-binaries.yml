@@ -87,7 +87,7 @@ jobs:
           # 2. Build GUI binary using PyInstaller
           if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
             GUI_NAME="accli-gui-linux"
-            docker run --rm -v "$(pwd):/workspace" -w /workspace python:3.12-slim-buster bash -c "
+            docker run --rm -v "$(pwd):/workspace" -w /workspace python:3.12-slim-bullseye bash -c "
               apt-get update && apt-get install -y tk && \
               pip install dist/*.whl pyinstaller && \
               pyinstaller --noconsole --onefile --name \"$GUI_NAME\" --collect-all accli accli/gui.py
