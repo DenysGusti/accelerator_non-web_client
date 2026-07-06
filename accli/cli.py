@@ -1314,21 +1314,40 @@ def mount_status(
     args = [str(hf_mount_bin), "status"]
 
     import subprocess
+    active_mounts = []
+
+    # 1. Query hf-mount status directly
     try:
         result = subprocess.run(args, capture_output=True, text=True)
         if result.returncode == 0:
             stdout = result.stdout.strip()
-            if not stdout:
-                print("[cyan]No running mounts found.[/cyan]")
-            else:
-                print("[bold cyan]Active Mounts:[/bold cyan]")
-                print(stdout)
-        else:
-            print(f"[bold red][ERROR] Failed to retrieve mount status (exit code {result.returncode}):[/bold red]")
-            if result.stderr:
-                print(f"[red]{result.stderr}[/red]")
-            raise typer.Exit(result.returncode)
-    except Exception as e:
-        print(f"[bold red]ERROR: Failed to execute status process: {e}[/bold red]")
-        raise typer.Exit(1)
+            if stdout:
+                for line in stdout.splitlines():
+                    if line.strip():
+                        active_mounts.append(line.strip())
+    except Exception:
+        pass
+
+    # 2. Fallback: parse system mount table on Linux to find localhost NFS or FUSE hf-mounts
+    if not active_mounts and platform.system() == "Linux":
+        try:
+            if os.path.exists("/proc/mounts"):
+                with open("/proc/mounts", "r") as f:
+                    for line in f:
+                        parts = line.strip().split()
+                        if len(parts) >= 3:
+                            dev, mnt_point, fstype = parts[0], parts[1], parts[2]
+                            is_nfs_localhost = (fstype == "nfs" and dev.startswith("127.0.0.1:"))
+                            is_fuse_hf = ("hf-mount" in dev or "hf-mount" in fstype)
+                            if is_nfs_localhost or is_fuse_hf:
+                                active_mounts.append(f"{mnt_point}   ({fstype} via {dev})")
+        except Exception:
+            pass
+
+    if not active_mounts:
+        print("[cyan]No running mounts found.[/cyan]")
+    else:
+        print("[bold cyan]Active Mounts:[/bold cyan]")
+        for m in active_mounts:
+            print(m)
 
