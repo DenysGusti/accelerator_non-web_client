@@ -85,17 +85,22 @@ jobs:
           cd ..
           
           # 2. Build GUI binary using PyInstaller
-          pip install dist/*.whl pyinstaller
-          
           if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
             GUI_NAME="accli-gui-linux"
-            pyinstaller --noconsole --onefile --name "$GUI_NAME" --collect-all accli accli/gui.py
-          elif [ "${{ matrix.os }}" == "windows-latest" ]; then
-            GUI_NAME="accli-gui-windows.exe"
-            pyinstaller --noconsole --onefile --name "$GUI_NAME" --collect-all accli accli/gui.py
+            docker run --rm -v "$(pwd):/workspace" -w /workspace python:3.12-slim-buster bash -c "
+              apt-get update && apt-get install -y tk && \
+              pip install dist/*.whl pyinstaller && \
+              pyinstaller --noconsole --onefile --name \"$GUI_NAME\" --collect-all accli accli/gui.py
+            "
           else
-            GUI_NAME="accli-gui-macos"
-            pyinstaller --noconsole --onefile --name "$GUI_NAME" --collect-all accli accli/gui.py
+            pip install dist/*.whl pyinstaller
+            if [ "${{ matrix.os }}" == "windows-latest" ]; then
+              GUI_NAME="accli-gui-windows.exe"
+              pyinstaller --noconsole --onefile --name "$GUI_NAME" --collect-all accli accli/gui.py
+            else
+              GUI_NAME="accli-gui-macos"
+              pyinstaller --noconsole --onefile --name "$GUI_NAME" --collect-all accli accli/gui.py
+            fi
           fi
           
           cp dist/"$GUI_NAME" dist/binaries/"$GUI_NAME"
