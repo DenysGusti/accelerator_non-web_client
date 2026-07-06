@@ -113,7 +113,7 @@ class AccliGuiApp(tk.Tk):
         self.build_auth_tab()
         self.build_logs_tab()
 
-    def run_cli_async(self, args, on_done=None, log_to_viewer=True):
+    def run_cli_async(self, args, on_done=None, log_to_viewer=True, elevate=False):
         """Runs the CLI binary in a background thread to prevent UI freezing."""
         def worker():
             # Determine how to invoke accli
@@ -123,6 +123,13 @@ class AccliGuiApp(tk.Tk):
             else:
                 # Script mode
                 cmd = [sys.executable, "-m", "accli.cli"] + args
+
+            if elevate and platform.system() != "Windows":
+                import shutil
+                if shutil.which("pkexec"):
+                    cmd = ["pkexec"] + cmd
+                else:
+                    cmd = ["sudo"] + cmd
 
             try:
                 if log_to_viewer:
@@ -491,7 +498,7 @@ class AccliGuiApp(tk.Tk):
                 self.status_bar_val.set("Mount Failed")
                 messagebox.showerror("Error", f"Failed to mount project '{slug}'. See logs for details.")
 
-        self.run_cli_async(args, on_done=on_done)
+        self.run_cli_async(args, on_done=on_done, elevate=True)
 
     def action_mount_stop(self):
         selected = self.mounts_list.get(tk.ACTIVE)
@@ -521,7 +528,7 @@ class AccliGuiApp(tk.Tk):
                 self.status_bar_val.set("Stop Failed")
                 messagebox.showerror("Error", f"Failed to stop mount at {mount_point}.")
 
-        self.run_cli_async(args, on_done=on_done)
+        self.run_cli_async(args, on_done=on_done, elevate=True)
 
     # ------------------ COPY TAB ------------------
     def build_copy_tab(self):

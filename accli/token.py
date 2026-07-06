@@ -4,7 +4,21 @@ from tinydb import TinyDB
 
 
 def get_db_path():
-    home = os.path.expanduser("~")
+    sudo_user = os.environ.get("SUDO_USER")
+    pkexec_uid = os.environ.get("PKEXEC_UID")
+
+    if (sudo_user or pkexec_uid) and os.name != "nt":
+        try:
+            import pwd
+            if pkexec_uid:
+                home = pwd.getpwuid(int(pkexec_uid)).pw_dir
+            else:
+                home = pwd.getpwnam(sudo_user).pw_dir
+        except Exception:
+            home = os.path.expanduser("~")
+    else:
+        home = os.path.expanduser("~")
+
     token_directory = f"{home}/.accli"
 
     if not os.path.exists(token_directory):
