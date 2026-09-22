@@ -638,7 +638,8 @@ def validate_project_slug(server_url: str, project_slug: str) -> None:
 
     if resp.status_code == 404:
         print(f"[bold red]ERROR: Project '{project_slug}' does not exist.[/bold red]")
-        print("[yellow]Hint: Check the project slug on the web UI.[/yellow]")
+        projects_url = f"{server_url.rstrip('/')}/projects/"
+        print(f"[yellow]Hint: Check the project slug in the web GUI: [link={projects_url}]{projects_url}[/link][/yellow]")
         raise typer.Exit(1)
     elif resp.status_code == 403:
         print(f"[bold red]ERROR: You do not have access to project '{project_slug}'.[/bold red]")
