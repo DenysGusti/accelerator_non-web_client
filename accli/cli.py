@@ -609,8 +609,11 @@ def validate_project_slug(server_url: str, project_slug: str) -> None:
     """
     Validates that project_slug exists on the backend before launching the mount daemon.
     Exchanges the stored refresh token for a TERM_CLI access token, then calls
-    GET /api/v1/projects/{slug}/ (which accepts XetCASAuthorizationService / TERM_CLI tokens).
-    Raises typer.Exit(1) with a clear message on 404 (not found) or 403 (no access).
+    GET /api/v1/aterm-cli/{slug}/revision-probe/?source_kind=bucket.
+    - 200 → project exists (or superuser; either way, proceed)
+    - 403 → project not found or no access → exit with clear message
+    No backend changes required; the endpoint already accepts TERM_CLI tokens via
+    XetCASAuthorizationService falling through to TerminalCliAuthorizationService.
     """
     import requests as _requests
     from accli.token import exchange_refresh_token
@@ -624,10 +627,11 @@ def validate_project_slug(server_url: str, project_slug: str) -> None:
         raise typer.Exit(1)
 
     verify_ssl = not bool(os.environ.get("ACCLI_DEBUG"))
-    url = f"{server_url.rstrip('/')}/api/v1/projects/{project_slug}/"
+    url = f"{server_url.rstrip('/')}/api/v1/aterm-cli/{project_slug}/revision-probe/"
     try:
         resp = _requests.get(
             url,
+            params={"source_kind": "bucket"},
             headers={"Authorization": f"Bearer {access_token}"},
             verify=verify_ssl,
             timeout=10,
@@ -636,13 +640,10 @@ def validate_project_slug(server_url: str, project_slug: str) -> None:
         print(f"[bold red]ERROR: Could not reach backend to validate project slug: {e}[/bold red]")
         raise typer.Exit(1)
 
-    if resp.status_code == 404:
-        print(f"[bold red]ERROR: Project '{project_slug}' does not exist.[/bold red]")
+    if resp.status_code in (403, 404):
+        print(f"[bold red]ERROR: Project '{project_slug}' not found or you do not have access.[/bold red]")
         projects_url = f"{server_url.rstrip('/')}/projects/"
         print(f"[yellow]Hint: Check the project slug in the web GUI: [link={projects_url}]{projects_url}[/link][/yellow]")
-        raise typer.Exit(1)
-    elif resp.status_code == 403:
-        print(f"[bold red]ERROR: You do not have access to project '{project_slug}'.[/bold red]")
         raise typer.Exit(1)
     elif not resp.ok:
         print(f"[bold red]ERROR: Unexpected server response ({resp.status_code}) when validating project slug.[/bold red]")
