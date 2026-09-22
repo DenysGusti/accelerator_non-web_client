@@ -2,6 +2,7 @@ import glob
 import importlib.util
 import os
 import re
+import time
 import warnings
 import hashlib
 import json
@@ -604,14 +605,14 @@ def find_available_windows_drive(preferred: str = "W") -> str:
     raise RuntimeError("No available Windows drive letters found.")
 
 
-def start_windows_explorer_refresher(mount_point: str, interval: int):
+def start_nfs_watcher(mount_point: str, interval: int):
     """Starts a lightweight background watcher in the user session that notifies Explorer when remote changes occur."""
     import sys
     import subprocess
     from pathlib import Path
     
-    refresher_script = Path(__file__).parent / "windows_refresher.py"
-    if not refresher_script.is_file():
+    watcher_script = Path(__file__).parent / "nfs_watcher.py"
+    if not watcher_script.is_file():
         return
     
     # Locate Python interpreter (prefer pythonw to run completely windowless if available)
@@ -627,13 +628,13 @@ def start_windows_explorer_refresher(mount_point: str, interval: int):
         # DETACHED_PROCESS (0x00000008) | CREATE_NEW_PROCESS_GROUP (0x00000200) | CREATE_NO_WINDOW (0x08000000)
         creationflags = 0x08000008 | 0x00000200
         proc = subprocess.Popen(
-            [executable, str(refresher_script), str(mount_point), str(interval)],
+            [executable, str(watcher_script), str(mount_point), str(interval)],
             creationflags=creationflags,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             close_fds=True
         )
-        pid_file = Path("C:/ProgramData/accli/refresher.pid")
+        pid_file = Path.home() / ".accli" / "nfs_watcher.pid"
         try:
             pid_file.parent.mkdir(parents=True, exist_ok=True)
             pid_file.write_text(str(proc.pid), encoding="utf-8")
@@ -643,16 +644,33 @@ def start_windows_explorer_refresher(mount_point: str, interval: int):
         pass
 
 
-def stop_windows_explorer_refresher():
-    """Stops any active background Explorer watcher process."""
+def stop_nfs_watcher(mount_point: str):
+    """Signals and stops any active background NFS watcher process."""
+    import os
     import subprocess
     from pathlib import Path
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
     
-    pid_file = Path("C:/ProgramData/accli/refresher.pid")
+    # 1. Graceful cooperative shutdown via Windows Named Event
+    try:
+        EVENT_MODIFY_STATE = 0x0002
+        drive = Path(mount_point).drive.upper().rstrip(":")
+        evt_name = f"Local\\accli_watcher_{drive}_stop" if drive else "Local\\accli_watcher_stop"
+        h_evt = kernel32.OpenEventW(EVENT_MODIFY_STATE, False, evt_name)
+        if h_evt:
+            kernel32.SetEvent(h_evt)
+            kernel32.CloseHandle(h_evt)
+            time.sleep(0.1)
+    except Exception:
+        pass
+
+    # 2. Clean up user-scoped PID file
+    pid_file = Path.home() / ".accli" / "nfs_watcher.pid"
     if pid_file.is_file():
         try:
             pid_str = pid_file.read_text(encoding="utf-8").strip()
-            if pid_str:
+            if pid_str and pid_str != str(os.getpid()):
                 subprocess.run(["taskkill", "/F", "/PID", pid_str], capture_output=True)
         except Exception:
             pass
@@ -660,18 +678,6 @@ def stop_windows_explorer_refresher():
             pid_file.unlink()
         except Exception:
             pass
-            
-    # Also clean up any lingering windows_refresher.py processes
-    try:
-        cleanup_cmd = [
-            "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
-            "Get-CimInstance Win32_Process -Filter \"name='python.exe' or name='pythonw.exe'\" | "
-            "Where-Object { $_.CommandLine -like '*windows_refresher.py*' } | "
-            "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-        ]
-        subprocess.run(cleanup_cmd, capture_output=True)
-    except Exception:
-        pass
 
 
 def enable_windows_nfs_features():
@@ -1053,7 +1059,6 @@ def mount_start(
                 
                 run_res = subprocess.run(["schtasks", "/run", "/tn", "accli-mount-nfs"], capture_output=True, text=True)
                 if run_res.returncode == 0:
-                    import time
                     print("[cyan]Waiting for elevated NFS daemon to initialize...[/cyan]")
                     time.sleep(2.0)
                     
@@ -1066,7 +1071,7 @@ def mount_start(
                     ]
                     mount_res = subprocess.run(mount_cmd, capture_output=True, text=True)
                     if mount_res.returncode == 0:
-                        start_windows_explorer_refresher(str(mount_point_abs), interval=30)
+                        start_nfs_watcher(str(mount_point_abs), interval=30)
                         print(f"[bold green][OK] NFS mount successfully mapped at [white]{mount_point_abs}[/white]![/bold green]")
                         print("[cyan]Use 'umount' or 'accli mount stop' to unmount the drive.[/cyan]")
                         return
@@ -1078,8 +1083,8 @@ def mount_start(
                         raise typer.Exit(1)
                 else:
                     print("[bold red][ERROR] Failed to execute Scheduled Task 'accli-mount-nfs'.[/bold red]")
-                    if run_res.stderr:
-                        print(f"[red]{run_res.stderr.strip()}[/red]")
+                    if trigger_res.stderr:
+                        print(f"[red]{trigger_res.stderr.strip()}[/red]")
                     print("[yellow]Falling back to UAC elevation...[/yellow]")
                     has_task = False
             except Exception as e:
@@ -1089,30 +1094,26 @@ def mount_start(
                 print("[yellow]Falling back to UAC elevation...[/yellow]")
                 has_task = False
 
+        # Fallback or standard spawn path
         try:
             if is_admin:
-                # Already running as Administrator - spawn decoupled background process directly
-                creationflags = 0x00000008
                 process = subprocess.Popen(
                     args,
                     env=env,
-                    creationflags=creationflags,
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                    close_fds=True
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW
                 )
-                
-                # Startup verification (1-second boot poll)
-                import time
+                print(f"[cyan]Waiting for NFS daemon to initialize...[/cyan]")
                 time.sleep(1.0)
+                
+                # Check if process crashed on boot
                 if process.poll() is not None:
-                    # Process has already terminated!
-                    print(f"[bold red][ERROR] Failed to start Windows NFS mount process (exit code {process.returncode}).[/bold red]")
+                    print(f"[bold red][ERROR] NFS daemon failed to start (exit code {process.returncode}).[/bold red]")
                     try:
-                        if log_file_path.is_file():
-                            with open(log_file_path, "r", encoding="utf-8") as lf:
-                                lines = lf.readlines()
-                                last_lines = "".join(lines[-10:])
+                        if Path(log_file_path).exists():
+                            with open(log_file_path, "r", encoding="utf-8", errors="ignore") as lf:
+                                last_lines = "".join(lf.readlines()[-15:])
                                 print("[red]Recent log output:[/red]")
                                 print(f"[dim]{last_lines.strip()}[/dim]")
                     except Exception:
@@ -1120,7 +1121,7 @@ def mount_start(
                     print(f"[yellow]Please check the log file at {log_file_path} for more details.[/yellow]")
                     raise typer.Exit(1)
                     
-                start_windows_explorer_refresher(str(mount_point_abs), interval=30)
+                start_nfs_watcher(str(mount_point_abs), interval=30)
                 print(f"[bold green][OK] NFS mount process spawned successfully (PID: {process.pid}).[/bold green]")
                 print(f"[cyan]Use 'umount' or 'accli mount stop' to unmount the drive.[/cyan]")
             else:
@@ -1156,7 +1157,6 @@ def mount_start(
                     raise typer.Exit(1)
                     
                 print("[cyan]Waiting for elevated NFS daemon to initialize...[/cyan]")
-                import time
                 time.sleep(2.0)
                 
                 # Map the network drive in the CURRENT user session (so it is visible in Explorer)
@@ -1168,7 +1168,7 @@ def mount_start(
                 ]
                 mount_res = subprocess.run(mount_cmd, capture_output=True, text=True)
                 if mount_res.returncode == 0:
-                    start_windows_explorer_refresher(str(mount_point_abs), interval=30)
+                    start_nfs_watcher(str(mount_point_abs), interval=30)
                     print(f"[bold green][OK] NFS mount successfully mapped at [white]{mount_point_abs}[/white]![/bold green]")
                     print("[cyan]Use 'umount' or 'accli mount stop' to unmount the drive.[/cyan]")
                 else:
@@ -1306,8 +1306,8 @@ def mount_stop(
         except Exception:
             is_admin = False
 
-        # 0. Stop Explorer background refresher
-        stop_windows_explorer_refresher()
+        # 0. Stop background NFS watcher
+        stop_nfs_watcher(str(mount_point_abs))
 
         # 1. Unmap the network drive in the user session
         res = subprocess.run(["C:\\Windows\\System32\\umount.exe", "-f", str(mount_point_abs)], capture_output=True, text=True)
@@ -1329,7 +1329,6 @@ def mount_stop(
             print("[cyan]Triggering elevated NFS daemon termination via Task Scheduler...[/cyan]")
             subprocess.run(["schtasks", "/run", "/tn", "accli-umount-nfs"], capture_output=True)
             # Poll for up to 5 seconds to ensure hf-mount-nfs.exe has fully terminated
-            import time
             for _ in range(10):
                 time.sleep(0.5)
                 task_check = subprocess.run(["tasklist", "/FI", "IMAGENAME eq hf-mount-nfs.exe"], capture_output=True, text=True)
