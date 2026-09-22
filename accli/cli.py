@@ -1065,7 +1065,12 @@ def mount_start(
                     # Map the network drive in the CURRENT user session (so it is visible in Explorer)
                     mount_cmd = [
                         "C:\\Windows\\System32\\mount.exe",
-                        "-o", "nolock,anon,mtype=hard,rsize=32,wsize=32,timeout=60",
+                        "-o", "mtype=hard",
+                        "-o", "timeout=10",
+                        "-o", "rsize=32",
+                        "-o", "wsize=32",
+                        "-o", "anon",
+                        "-o", "nolock",
                         "\\\\127.0.0.1\\!",
                         str(mount_point_abs)
                     ]
@@ -1162,7 +1167,12 @@ def mount_start(
                 # Map the network drive in the CURRENT user session (so it is visible in Explorer)
                 mount_cmd = [
                     "C:\\Windows\\System32\\mount.exe",
-                    "-o", "nolock,anon,mtype=hard,rsize=32,wsize=32,timeout=60",
+                    "-o", "mtype=hard",
+                    "-o", "timeout=10",
+                    "-o", "rsize=32",
+                    "-o", "wsize=32",
+                    "-o", "anon",
+                    "-o", "nolock",
                     "\\\\127.0.0.1\\!",
                     str(mount_point_abs)
                 ]
