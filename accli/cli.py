@@ -605,6 +605,49 @@ def find_available_windows_drive(preferred: str) -> str:
     raise RuntimeError("No available Windows drive letters found.")
 
 
+def validate_project_slug(server_url: str, project_slug: str) -> None:
+    """
+    Validates that project_slug exists on the backend before launching the mount daemon.
+    Exchanges the stored refresh token for a TERM_CLI access token, then calls
+    GET /api/v1/projects/{slug}/ (which accepts XetCASAuthorizationService / TERM_CLI tokens).
+    Raises typer.Exit(1) with a clear message on 404 (not found) or 403 (no access).
+    """
+    import requests as _requests
+    from accli.token import exchange_refresh_token
+
+    try:
+        _cas_token, access_token, _expires = exchange_refresh_token(project_slug)
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"[bold red]ERROR: Could not obtain access token for project '{project_slug}': {e}[/bold red]")
+        raise typer.Exit(1)
+
+    verify_ssl = not bool(os.environ.get("ACCLI_DEBUG"))
+    url = f"{server_url.rstrip('/')}/api/v1/projects/{project_slug}/"
+    try:
+        resp = _requests.get(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            verify=verify_ssl,
+            timeout=10,
+        )
+    except _requests.exceptions.RequestException as e:
+        print(f"[bold red]ERROR: Could not reach backend to validate project slug: {e}[/bold red]")
+        raise typer.Exit(1)
+
+    if resp.status_code == 404:
+        print(f"[bold red]ERROR: Project '{project_slug}' does not exist.[/bold red]")
+        print("[yellow]Hint: Check the project slug on the web UI.[/yellow]")
+        raise typer.Exit(1)
+    elif resp.status_code == 403:
+        print(f"[bold red]ERROR: You do not have access to project '{project_slug}'.[/bold red]")
+        raise typer.Exit(1)
+    elif not resp.ok:
+        print(f"[bold red]ERROR: Unexpected server response ({resp.status_code}) when validating project slug.[/bold red]")
+        raise typer.Exit(1)
+
+
 def start_nfs_watcher(mount_point: str, interval: int):
     """Starts a lightweight background watcher in the user session that notifies Explorer when remote changes occur."""
     import sys
@@ -878,6 +921,10 @@ def mount_start(
     elif mode != "bucket":
         print("[bold red]ERROR: Mode must be either 'bucket' or 'repo'.[/bold red]")
         raise typer.Exit(1)
+
+    # Validate project slug against backend before doing any heavy work
+    print(f"[cyan]Validating project '{project_slug}'...[/cyan]")
+    validate_project_slug(server_url, project_slug)
 
     # Ensure binaries are downloaded and cached
     try:
