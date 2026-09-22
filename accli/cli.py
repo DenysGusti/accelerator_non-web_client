@@ -589,7 +589,7 @@ mount_app = typer.Typer(
 app.add_typer(mount_app, name="mount")
 
 
-def find_available_windows_drive(preferred: str = "W") -> str:
+def find_available_windows_drive(preferred: str) -> str:
     """Finds an available Windows drive letter, starting with preferred, then checking others."""
     import os
     preferred = preferred.upper()
