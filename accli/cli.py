@@ -627,11 +627,10 @@ def validate_project_slug(server_url: str, project_slug: str) -> None:
         raise typer.Exit(1)
 
     verify_ssl = not bool(os.environ.get("ACCLI_DEBUG"))
-    url = f"{server_url.rstrip('/')}/api/v1/aterm-cli/{project_slug}/revision-probe/"
+    url = f"{server_url.rstrip('/')}/api/v1/aterm-cli/{project_slug}/"
     try:
         resp = _requests.get(
             url,
-            params={"source_kind": "bucket"},
             headers={"Authorization": f"Bearer {access_token}"},
             verify=verify_ssl,
             timeout=10,
