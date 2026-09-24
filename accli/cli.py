@@ -608,12 +608,10 @@ def find_available_windows_drive(preferred: str) -> str:
 def validate_project_slug(server_url: str, project_slug: str) -> None:
     """
     Validates that project_slug exists on the backend before launching the mount daemon.
-    Exchanges the stored refresh token for a TERM_CLI access token, then calls
-    GET /api/v1/aterm-cli/{slug}/revision-probe/?source_kind=bucket.
-    - 200 → project exists (or superuser; either way, proceed)
-    - 403 → project not found or no access → exit with clear message
-    No backend changes required; the endpoint already accepts TERM_CLI tokens via
-    XetCASAuthorizationService falling through to TerminalCliAuthorizationService.
+    Exchanges the stored refresh token for a cas_token, then calls
+    GET /api/v1/aterm-cli/{slug}/ (authenticated via XetCASAuthorizationService).
+    - 200 → project exists and user is authorized; proceed with mount
+    - 403 / 404 → project not found or no access → exit with clear message
     """
     import requests as _requests
     from accli.token import exchange_refresh_token
