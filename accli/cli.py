@@ -619,7 +619,7 @@ def validate_project_slug(server_url: str, project_slug: str) -> None:
     from accli.token import exchange_refresh_token
 
     try:
-        _cas_token, access_token, _expires = exchange_refresh_token(project_slug)
+        cas_token, _access_token, _expires = exchange_refresh_token(project_slug)
     except SystemExit:
         raise
     except Exception as e:
@@ -631,7 +631,7 @@ def validate_project_slug(server_url: str, project_slug: str) -> None:
     try:
         resp = _requests.get(
             url,
-            headers={"Authorization": f"Bearer {access_token}"},
+            headers={"Authorization": f"Bearer {cas_token}"},
             verify=verify_ssl,
             timeout=10,
         )
