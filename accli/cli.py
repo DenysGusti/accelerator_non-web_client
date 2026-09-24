@@ -589,7 +589,7 @@ mount_app = typer.Typer(
 app.add_typer(mount_app, name="mount")
 
 
-def find_available_windows_drive(preferred: str = "W") -> str:
+def find_available_windows_drive(preferred: str) -> str:
     """Finds an available Windows drive letter, starting with preferred, then checking others."""
     import os
     preferred = preferred.upper()
@@ -603,6 +603,48 @@ def find_available_windows_drive(preferred: str = "W") -> str:
             return f"{letter}:"
             
     raise RuntimeError("No available Windows drive letters found.")
+
+
+def validate_project_slug(server_url: str, project_slug: str) -> None:
+    """
+    Validates that project_slug exists on the backend before launching the mount daemon.
+    Exchanges the stored refresh token for a cas_token, then calls
+    GET /api/v1/aterm-cli/{slug}/ (authenticated via XetCASAuthorizationService).
+    - 200 → project exists and user is authorized; proceed with mount
+    - 403 / 404 → project not found or no access → exit with clear message
+    """
+    import requests as _requests
+    from accli.token import exchange_refresh_token
+
+    try:
+        cas_token, _access_token, _expires = exchange_refresh_token(project_slug)
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"[bold red]ERROR: Could not obtain access token for project '{project_slug}': {e}[/bold red]")
+        raise typer.Exit(1)
+
+    verify_ssl = not bool(os.environ.get("ACCLI_DEBUG"))
+    url = f"{server_url.rstrip('/')}/api/v1/aterm-cli/{project_slug}/"
+    try:
+        resp = _requests.get(
+            url,
+            headers={"Authorization": f"Bearer {cas_token}"},
+            verify=verify_ssl,
+            timeout=10,
+        )
+    except _requests.exceptions.RequestException as e:
+        print(f"[bold red]ERROR: Could not reach backend to validate project slug: {e}[/bold red]")
+        raise typer.Exit(1)
+
+    if resp.status_code in (403, 404):
+        print(f"[bold red]ERROR: Project '{project_slug}' not found or you do not have access.[/bold red]")
+        projects_url = f"{server_url.rstrip('/')}/projects/"
+        print(f"[yellow]Hint: Check the project slug in the web GUI: [link={projects_url}]{projects_url}[/link][/yellow]")
+        raise typer.Exit(1)
+    elif not resp.ok:
+        print(f"[bold red]ERROR: Unexpected server response ({resp.status_code}) when validating project slug.[/bold red]")
+        raise typer.Exit(1)
 
 
 def start_nfs_watcher(mount_point: str, interval: int):
@@ -879,6 +921,10 @@ def mount_start(
         print("[bold red]ERROR: Mode must be either 'bucket' or 'repo'.[/bold red]")
         raise typer.Exit(1)
 
+    # Validate project slug against backend before doing any heavy work
+    print(f"[cyan]Validating project '{project_slug}'...[/cyan]")
+    validate_project_slug(server_url, project_slug)
+
     # Ensure binaries are downloaded and cached
     try:
         mount_downloader.ensure_binaries(version=binary_version, use_fuse=fuse)
@@ -1065,7 +1111,12 @@ def mount_start(
                     # Map the network drive in the CURRENT user session (so it is visible in Explorer)
                     mount_cmd = [
                         "C:\\Windows\\System32\\mount.exe",
-                        "-o", "nolock,anon,mtype=hard,rsize=32,wsize=32,timeout=60",
+                        "-o", "mtype=hard",
+                        "-o", "timeout=10",
+                        "-o", "rsize=32",
+                        "-o", "wsize=32",
+                        "-o", "anon",
+                        "-o", "nolock",
                         "\\\\127.0.0.1\\!",
                         str(mount_point_abs)
                     ]
@@ -1162,7 +1213,12 @@ def mount_start(
                 # Map the network drive in the CURRENT user session (so it is visible in Explorer)
                 mount_cmd = [
                     "C:\\Windows\\System32\\mount.exe",
-                    "-o", "nolock,anon,mtype=hard,rsize=32,wsize=32,timeout=60",
+                    "-o", "mtype=hard",
+                    "-o", "timeout=10",
+                    "-o", "rsize=32",
+                    "-o", "wsize=32",
+                    "-o", "anon",
+                    "-o", "nolock",
                     "\\\\127.0.0.1\\!",
                     str(mount_point_abs)
                 ]
