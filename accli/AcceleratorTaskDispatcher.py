@@ -171,6 +171,16 @@ def push_folder_job(directory, include=None, exclude=None):
     return f"s3accjobstore://{manifest_name}", manifest_hash
 
 
+JOB_SECRETS_DESCRIPTION = (
+    "Env var name to secret key, e.g. {'GIT_PAT': 'GIT_PAT'}. Keys name project or personal secrets "
+    "stored under Project > Secrets in the web app; never put a secret value here, the gateway rejects it."
+)
+JOB_SECRET_FILES_DESCRIPTION = (
+    "File name to secret key. The value is mounted at /var/run/secrets/wkube/<file name> instead of "
+    "an env var, which keeps it out of env dumps and child processes."
+)
+
+
 class JobDispatchModel(BaseModel):
     is_holder_job: bool = True
     build_only_task: bool = False
@@ -189,7 +199,8 @@ class JobDispatchModel(BaseModel):
     # is ignored if it is a callback and child of non-free node jobs
     required_storage_workflow: Optional[float] = None
 
-    job_secrets: Optional[dict] = {}
+    job_secrets: Optional[Dict[str, str]] = Field({}, description=JOB_SECRETS_DESCRIPTION)
+    job_secret_files: Optional[Dict[str, str]] = Field({}, description=JOB_SECRET_FILES_DESCRIPTION)
 
     timeout: Optional[int] = None
     pvc_id: Optional[str] = None
@@ -210,7 +221,8 @@ class WKubeTaskMeta(BaseModel):
     # is ignored if it is a callback and child of non-free node jobs
     required_storage_workflow: Optional[float] = None
 
-    job_secrets: Optional[dict] = {}
+    job_secrets: Optional[Dict[str, str]] = Field({}, description=JOB_SECRETS_DESCRIPTION)
+    job_secret_files: Optional[Dict[str, str]] = Field({}, description=JOB_SECRET_FILES_DESCRIPTION)
 
     timeout: int
 
