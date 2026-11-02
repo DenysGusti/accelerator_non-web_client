@@ -33,6 +33,8 @@ from tkinter import ttk, messagebox, filedialog
 
 # Ensure PyInstaller static analyzer traces and bundles all CLI dependencies
 import accli.cli
+from accli.version_checker import check_for_updates, get_upgrade_instruction
+from accli._version import VERSION
 
 class AccliGuiApp(tk.Tk):
     def __init__(self):
@@ -51,6 +53,7 @@ class AccliGuiApp(tk.Tk):
         # Start state check poll
         self.refresh_login_status()
         self.refresh_mounts_list()
+        self.check_version_async()
         
     def configure_styles(self):
         self.configure(bg="#1e1e1e")
@@ -116,6 +119,22 @@ class AccliGuiApp(tk.Tk):
         self.build_dispatch_tab()
         self.build_auth_tab()
         self.build_logs_tab()
+
+    def check_version_async(self):
+        def worker():
+            update_avail, latest = check_for_updates()
+            if update_avail:
+                instruction = get_upgrade_instruction()
+                def show_notice():
+                    self.status_bar_val.set(f"Update available: {latest} (current: {VERSION})")
+                    self.append_log(f"\n🔔 [NOTICE] A new version of accli ({latest}) is available! Current version: {VERSION}\n{instruction}\n\n")
+                    # Also show subtle info notification
+                    messagebox.showinfo(
+                        "Update Available",
+                        f"A new version of accli is available: {latest}\n(Currently installed: {VERSION})\n\n{instruction}"
+                    )
+                self.after(0, show_notice)
+        threading.Thread(target=worker, daemon=True).start()
 
     def run_cli_async(self, args, on_done=None, log_to_viewer=True, elevate=False):
         """Runs the CLI binary in a background thread to prevent UI freezing."""
