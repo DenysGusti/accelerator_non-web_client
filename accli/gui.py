@@ -164,14 +164,20 @@ class AccliGuiApp(tk.Tk):
                     startupinfo = subprocess.STARTUPINFO()
                     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 
+                env = os.environ.copy()
+                env["PYTHONIOENCODING"] = "utf-8"
+                env["PYTHONUTF8"] = "1"
+
                 process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    encoding="utf-8",
                     errors="replace",
                     bufsize=1,
-                    startupinfo=startupinfo
+                    startupinfo=startupinfo,
+                    env=env,
                 )
                 
                 output_lines = []
