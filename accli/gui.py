@@ -126,12 +126,12 @@ class AccliGuiApp(tk.Tk):
             if update_avail:
                 instruction = get_upgrade_instruction()
                 def show_notice():
-                    self.status_bar_val.set(f"Update available: {latest} (current: {VERSION})")
-                    self.append_log(f"\n🔔 [NOTICE] A new version of accli ({latest}) is available! Current version: {VERSION}\n{instruction}\n\n")
+                    self.status_bar_val.set(f"Update available: accli {latest} (current: {VERSION})")
+                    self.append_log(f"\n🔔 Update available: accli {latest} (current: {VERSION})\n{instruction}\n\n")
                     # Also show subtle info notification
                     messagebox.showinfo(
                         "Update Available",
-                        f"A new version of accli is available: {latest}\n(Currently installed: {VERSION})\n\n{instruction}"
+                        f"Update available: accli {latest} (current: {VERSION})\n\n{instruction}"
                     )
                 self.after(0, show_notice)
         threading.Thread(target=worker, daemon=True).start()

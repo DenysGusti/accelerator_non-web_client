@@ -36,27 +36,20 @@ ACCLI_DEBUG = os.environ.get('ACCLI_DEBUG', False)
 app = typer.Typer(
     add_completion=False,
     pretty_exceptions_show_locals=False,
-    no_args_is_help=True,
     context_settings={"help_option_names": ["-h", "--help"]}
 )
 
 
-def version_callback(value: bool):
-    if value:
-        print(f"[bold cyan]accli version: {VERSION}[/bold cyan]")
-        update_avail, latest = check_for_updates()
-        if update_avail:
-            instruction = get_upgrade_instruction()
-            print(f"[bold yellow]🔔 A new version of accli is available: {latest} (Current: {VERSION})[/bold yellow]")
-            print(f"[yellow]{instruction}[/yellow]\n")
-        raise typer.Exit()
-
-
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main_callback(
+    ctx: typer.Context,
     version: Annotated[
         bool,
-        typer.Option("--version", "-v", callback=version_callback, is_eager=True, help="Show the version and exit.")
+        typer.Option("--version", "-v", help="Show the version and exit.")
+    ] = False,
+    help: Annotated[
+        bool,
+        typer.Option("--help", "-h", help="Show this message and exit.")
     ] = False,
 ):
     update_avail, latest = check_for_updates()
@@ -64,6 +57,14 @@ def main_callback(
         instruction = get_upgrade_instruction()
         print(f"[bold yellow]🔔 Update available: accli {latest} (current: {VERSION})[/bold yellow]")
         print(f"[yellow]{instruction}[/yellow]\n")
+
+    if version:
+        print(f"[bold cyan]accli version: {VERSION}[/bold cyan]")
+        raise typer.Exit()
+
+    if help or ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
 
 
 def get_size(path):
@@ -93,11 +94,6 @@ def about():
     print("[bold cyan]Feature requests & suggestions: https://github.com/iiasa/accli/issues[/bold cyan]")
     print("[bold cyan]License: The MIT License (MIT)[/bold cyan]")
     print(f"[bold cyan]Version: {VERSION}[/bold cyan]")
-    update_avail, latest = check_for_updates()
-    if update_avail:
-        instruction = get_upgrade_instruction()
-        print(f"[bold yellow]🔔 A new version of accli is available: {latest} (Current: {VERSION})[/bold yellow]")
-        print(f"[yellow]{instruction}[/yellow]\n")
 
 
 @app.command()
