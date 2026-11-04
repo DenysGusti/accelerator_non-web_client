@@ -26,7 +26,7 @@ This client uses **device authentication** via Auth0.
 
 ### ✅ Requirements
 
-- Python >= 3.7.17
+- Python >= 3.8
 
 ### 📦 Installation
 
