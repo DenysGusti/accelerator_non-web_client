@@ -43,6 +43,7 @@ class AccliGuiApp(tk.Tk):
         self.title("IIASA Accelerator Client (accli)")
         self.geometry("800x600")
         self.minsize(700, 500)
+        self.set_app_icon()
         
         # Apply dark modern theme style
         self.style = ttk.Style()
@@ -55,6 +56,17 @@ class AccliGuiApp(tk.Tk):
         self.refresh_login_status()
         self.refresh_mounts_list()
         self.check_version_async()
+
+    def set_app_icon(self):
+        base_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+        for candidate in (Path(__file__).parent / "acc_logo.png", base_dir / "accli" / "acc_logo.png", base_dir / "acc_logo.png"):
+            if candidate.is_file():
+                try:
+                    self._app_icon = tk.PhotoImage(file=str(candidate))
+                    self.iconphoto(True, self._app_icon)
+                    break
+                except Exception:
+                    pass
         
     def configure_styles(self):
         self.configure(bg="#1e1e1e")
