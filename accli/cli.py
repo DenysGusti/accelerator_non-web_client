@@ -15,11 +15,13 @@ import requests
 import typer
 from typing import List
 
-from accli.AcceleratorTerminalCliProjectService import AcceleratorTerminalCliProjectService
+from accli.AcceleratorTerminalCliProjectService import AcceleratorTerminalCliProjectService, AccAPIError
 from accli.CsvRegionalTimeseriesValidator import CsvRegionalTimeseriesValidator
 from accli.log_timeline import build_timeline
+from accli import job_views
 from accli.token import save_token_details, get_token, get_server_url, set_project_slug, get_project_slug, get_db_path, exchange_refresh_token
 from rich import print
+from rich.text import Text
 from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn
 from typing_extensions import Annotated
 
@@ -248,6 +250,115 @@ def logs(
         after = manifest["after"]
         completed = manifest["job_completed"]
         print_new(final=completed)
+
+
+def _cli_service_for(project_slug):
+    """Resolve the project (or the last one used) and return (slug, service)."""
+    project_slug = project_slug or get_project_slug()
+    if not project_slug:
+        print("[bold red]ERROR: No project selected. Pass one with -p.[/bold red]")
+        raise typer.Exit(1)
+
+    _, access_token, _ = exchange_refresh_token(project_slug)
+    service = AcceleratorTerminalCliProjectService(
+        user_token=access_token,
+        server_url=get_server_url(),
+        verify_cert=(not ACCLI_DEBUG)
+    )
+    return project_slug, service
+
+
+def _api_error_detail(err):
+    try:
+        return json.loads(err.response.data).get("detail") or str(err)
+    except Exception:
+        return str(err)
+
+
+@app.command()
+def jobs(
+        project_slug: Annotated[
+            str, typer.Option(..., '-p', help="Project slug. Defaults to the last project used.")] = None,
+        status: Annotated[
+            List[str], typer.Option(
+                ..., '--status', '-s',
+                help=(
+                    "Only jobs whose graph has this status: processing (or active), error (or failed), done. "
+                    "A standalone job counts by its own status. Repeatable or comma separated."
+                ))] = None,
+        limit: Annotated[int, typer.Option(..., '--limit', '-n', help="How many jobs to show.")] = 10,
+        whole: Annotated[bool, typer.Option(..., '--all', help="Show every matching job, not only the latest.")] = False,
+        as_json: Annotated[bool, typer.Option(..., '--json', help="Print the raw JSON.")] = False,
+):
+    """List root jobs (newest first) with their type and status.
+
+    TYPE is standalone, children, callback or children+callback. GRAPH is the status
+    of everything below the root job, and what --status filters on. See a job's
+    status and everything it holds with `accli job <job>`.
+    """
+    project_slug, service = _cli_service_for(project_slug)
+    status_filter = ",".join(t.strip() for s in (status or []) for t in s.split(",") if t.strip()) or None
+    page_size = 10 if whole else min(limit, 200)
+
+    results, count, cursor = [], 0, None
+    try:
+        while True:
+            page = service.list_root_jobs(project_slug, limit=page_size, cursor=cursor, status=status_filter)
+            results += page["results"]
+            count = page["count"]
+            cursor = page.get("next_cursor")
+            if not cursor or (not whole and len(results) >= limit):
+                break
+    except AccAPIError as err:
+        print(f"[bold red]ERROR: {_api_error_detail(err)}[/bold red]")
+        raise typer.Exit(1)
+
+    if not whole:
+        results = results[:limit]
+
+    if as_json:
+        typer.echo(json.dumps(dict(count=count, results=results), indent=2, default=str))
+        return
+
+    if not results:
+        print("No jobs found.")
+        return
+
+    print(job_views.root_jobs_table(results))
+    if count > len(results):
+        print(f"[dim]Showing {len(results)} of {count} jobs. Use -n or --all to see more.[/dim]")
+
+
+@app.command()
+def job(
+        job_id: Annotated[int, typer.Argument(help="Job ID: a single job, or one holding children and callbacks.")],
+        project_slug: Annotated[
+            str, typer.Option(..., '-p', help="Project slug. Defaults to the last project used.")] = None,
+        as_json: Annotated[bool, typer.Option(..., '--json', help="Print the raw JSON.")] = False,
+):
+    """Show a job's status and details. For a job holding children or callbacks, Graph status
+    covers the jobs below it, the same as GRAPH in `accli jobs`, and each one is listed.
+
+    See a job's output with `accli logs <job>`.
+    """
+    project_slug, service = _cli_service_for(project_slug)
+    try:
+        job_graph = service.get_job_graph(project_slug, job_id)
+    except AccAPIError as err:
+        print(f"[bold red]ERROR: {_api_error_detail(err)}[/bold red]")
+        raise typer.Exit(1)
+
+    if as_json:
+        typer.echo(json.dumps(job_graph, indent=2, default=str))
+        return
+
+    title, details = job_views.job_details(job_graph, job_id)
+    print(title)
+    print(details)
+    if len(job_views.subtree(job_graph, job_id)) > 1:
+        print()
+        print(Text(f"Jobs in #{job_id}", style="bold"))
+        print(job_views.jobs_table(job_graph, job_id))
 
 
 def compute_sha256(filepath: str) -> str:

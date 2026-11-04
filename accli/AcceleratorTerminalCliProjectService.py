@@ -151,6 +151,24 @@ class AcceleratorTerminalCliProjectService:
 
         return todict(res.data)['job_id']
 
+    def list_root_jobs(self, project_slug, limit=None, cursor=None, status=None):
+        params = dict(limit=limit, cursor=cursor, status=status)
+        query = urlencode({k: v for k, v in params.items() if v is not None})
+        res = self.http_client_request(
+            "GET",
+            f"{self.cli_base_url}/{project_slug}/jobs/?{query}",
+            headers=self.common_request_headers
+        )
+        return todict(res.data)
+
+    def get_job_graph(self, project_slug, job_id):
+        res = self.http_client_request(
+            "GET",
+            f"{self.cli_base_url}/{project_slug}/jobs/{job_id}/graph/",
+            headers=self.common_request_headers
+        )
+        return todict(res.data)
+
     def get_job_logs(self, project_slug, job_id, sources=None, attempt=None, before=None, after=None, limit=None):
         params = dict(sources=sources, attempt=attempt, before=before, after=after, limit=limit)
         query = urlencode({k: v for k, v in params.items() if v is not None})
