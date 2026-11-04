@@ -272,11 +272,12 @@ class AccliGuiApp(tk.Tk):
             self.server_entry.configure(state=tk.NORMAL)
             self.status_bar_val.set("Session Status: Disconnected")
             
+        debug_status = "Enabled ($env:ACCLI_DEBUG='1')" if os.environ.get("ACCLI_DEBUG") else "Disabled"
         details = [
             f"Server URL:     {server_url}",
             f"Session Status: {'Connected / Logged In' if logged_in else 'Not Logged In'}",
             f"Token DB Path:  {db_path}",
-            f"Debug Mode:     {'Enabled ($env:ACCLI_DEBUG=\"1\")' if os.environ.get('ACCLI_DEBUG') else 'Disabled'}"
+            f"Debug Mode:     {debug_status}"
         ]
         self.conn_details_txt.configure(state=tk.NORMAL)
         self.conn_details_txt.delete("1.0", tk.END)
