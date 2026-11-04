@@ -93,19 +93,19 @@ Usage: accli [OPTIONS] COMMAND [ARGS]...
 List root jobs, newest first, with each job's type (`standalone`, `children`, `callback` or `children+callback`), its own status and the status of its whole graph:
 
 ```bash
-accli jobs                        # latest 10 in the last project used
-accli jobs -p my-project -n 50
-accli jobs -s failed              # graphs with a failed job
-accli jobs -s processing,error --all
+accli jobs my-project                       # latest 10
+accli jobs my-project -n 50
+accli jobs my-project -s failed             # graphs with a failed job
+accli jobs my-project -s processing,error
 ```
 
 `--status` filters on the graph status: `processing` (or `active`), `error` (or `failed`) and `done`. A standalone job counts by its own status.
 
-Show a job's status and details. For a job holding children or callbacks, Graph status covers the jobs below it (the same as GRAPH in `accli jobs`) and each one is listed; any job also links to the pipeline it is part of. Read a job's output with `accli logs <job>`:
+Show a job's status and details. For a job holding children or callbacks, Graph status covers the jobs below it (the same as GRAPH in `accli jobs`) and each one is listed; any job also links to the pipeline it is part of. Read a job's output with `accli logs <project> <job>`:
 
 ```bash
-accli job 1234
-accli job 1234 --json
+accli job my-project 1234
+accli job my-project 1234 --json
 ```
 
 ---

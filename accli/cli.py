@@ -228,9 +228,8 @@ LOG_POLL_SECONDS = 5
 
 @app.command()
 def logs(
+        project_slug: Annotated[str, typer.Argument(help="Unique Accelerator project slug.")],
         job_id: Annotated[int, typer.Argument(help="Job ID.")],
-        project_slug: Annotated[
-            str, typer.Option(..., '-p', help="Project slug. Defaults to the last project used.")] = None,
         follow: Annotated[
             bool, typer.Option(..., '--follow', '-f', help="Keep printing new lines until the job finishes.")] = False,
         source: Annotated[
@@ -241,17 +240,7 @@ def logs(
         show_time: Annotated[bool, typer.Option('--time/--no-time', help="Show the time of each line.")] = True,
 ):
     """Print a job's merged log: executor output, scheduler output and cluster events."""
-    project_slug = project_slug or get_project_slug()
-    if not project_slug:
-        print("[bold red]ERROR: No project selected. Pass one with -p.[/bold red]")
-        raise typer.Exit(1)
-
-    _, access_token, _ = exchange_refresh_token(project_slug)
-    service = AcceleratorTerminalCliProjectService(
-        user_token=access_token,
-        server_url=get_server_url(),
-        verify_cert=(not ACCLI_DEBUG)
-    )
+    service = _cli_service_for(project_slug)
     sources = ",".join(source) if source else None
     limit = 100 if whole else None
 
@@ -297,19 +286,16 @@ def logs(
 
 
 def _cli_service_for(project_slug):
-    """Resolve the project (or the last one used) and return (slug, service)."""
-    project_slug = project_slug or get_project_slug()
-    if not project_slug:
-        print("[bold red]ERROR: No project selected. Pass one with -p.[/bold red]")
-        raise typer.Exit(1)
-
+    """Check the project exists and is accessible (as `mount` does), then return a CLI service for it."""
+    server_url = get_server_url()
+    validate_project_slug(server_url, project_slug)
+    # The token from validation is cached in memory, so this exchange makes no extra request.
     _, access_token, _ = exchange_refresh_token(project_slug)
-    service = AcceleratorTerminalCliProjectService(
+    return AcceleratorTerminalCliProjectService(
         user_token=access_token,
-        server_url=get_server_url(),
+        server_url=server_url,
         verify_cert=(not ACCLI_DEBUG)
     )
-    return project_slug, service
 
 
 def _api_error_detail(err):
@@ -321,8 +307,7 @@ def _api_error_detail(err):
 
 @app.command()
 def jobs(
-        project_slug: Annotated[
-            str, typer.Option(..., '-p', help="Project slug. Defaults to the last project used.")] = None,
+        project_slug: Annotated[str, typer.Argument(help="Unique Accelerator project slug.")],
         status: Annotated[
             List[str], typer.Option(
                 ..., '--status', '-s',
@@ -330,35 +315,25 @@ def jobs(
                     "Only jobs whose graph has this status: processing (or active), error (or failed), done. "
                     "A standalone job counts by its own status. Repeatable or comma separated."
                 ))] = None,
-        limit: Annotated[int, typer.Option(..., '--limit', '-n', help="How many jobs to show.")] = 10,
-        whole: Annotated[bool, typer.Option(..., '--all', help="Show every matching job, not only the latest.")] = False,
+        limit: Annotated[
+            int, typer.Option(..., '--limit', '-n', min=1, max=200, help="How many jobs to show, up to 200.")] = 10,
         as_json: Annotated[bool, typer.Option(..., '--json', help="Print the raw JSON.")] = False,
 ):
     """List root jobs (newest first) with their type and status.
 
     TYPE is standalone, children, callback or children+callback. GRAPH is the status
     of everything below the root job, and what --status filters on. See a job's
-    status and everything it holds with `accli job <job>`.
+    status and everything it holds with `accli job <project> <job>`.
     """
-    project_slug, service = _cli_service_for(project_slug)
+    service = _cli_service_for(project_slug)
     status_filter = ",".join(t.strip() for s in (status or []) for t in s.split(",") if t.strip()) or None
-    page_size = 10 if whole else min(limit, 200)
 
-    results, count, cursor = [], 0, None
     try:
-        while True:
-            page = service.list_root_jobs(project_slug, limit=page_size, cursor=cursor, status=status_filter)
-            results += page["results"]
-            count = page["count"]
-            cursor = page.get("next_cursor")
-            if not cursor or (not whole and len(results) >= limit):
-                break
+        page = service.list_root_jobs(project_slug, limit=limit, status=status_filter)
     except AccAPIError as err:
         print(f"[bold red]ERROR: {_api_error_detail(err)}[/bold red]")
         raise typer.Exit(1)
-
-    if not whole:
-        results = results[:limit]
+    results, count = page["results"], page["count"]
 
     if as_json:
         typer.echo(json.dumps(dict(count=count, results=results), indent=2, default=str))
@@ -370,22 +345,21 @@ def jobs(
 
     print(job_views.root_jobs_table(results))
     if count > len(results):
-        print(f"[dim]Showing {len(results)} of {count} jobs. Use -n or --all to see more.[/dim]")
+        print(f"[dim]Showing {len(results)} of {count} jobs. Use -n to see more.[/dim]")
 
 
 @app.command()
 def job(
+        project_slug: Annotated[str, typer.Argument(help="Unique Accelerator project slug.")],
         job_id: Annotated[int, typer.Argument(help="Job ID: a single job, or one holding children and callbacks.")],
-        project_slug: Annotated[
-            str, typer.Option(..., '-p', help="Project slug. Defaults to the last project used.")] = None,
         as_json: Annotated[bool, typer.Option(..., '--json', help="Print the raw JSON.")] = False,
 ):
     """Show a job's status and details. For a job holding children or callbacks, Graph status
     covers the jobs below it, the same as GRAPH in `accli jobs`, and each one is listed.
 
-    See a job's output with `accli logs <job>`.
+    See a job's output with `accli logs <project> <job>`.
     """
-    project_slug, service = _cli_service_for(project_slug)
+    service = _cli_service_for(project_slug)
     try:
         job_graph = service.get_job_graph(project_slug, job_id)
     except AccAPIError as err:
@@ -396,7 +370,7 @@ def job(
         typer.echo(json.dumps(job_graph, indent=2, default=str))
         return
 
-    title, details = job_views.job_details(job_graph, job_id)
+    title, details = job_views.job_details(job_graph, job_id, project_slug)
     print(title)
     print(details)
     if len(job_views.subtree(job_graph, job_id)) > 1:

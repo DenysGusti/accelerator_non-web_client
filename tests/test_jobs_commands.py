@@ -1,6 +1,8 @@
 """`accli jobs` and `accli job` against a fake API."""
 import json
 
+import pytest
+
 from typer.testing import CliRunner
 
 from accli import cli
@@ -31,11 +33,12 @@ class FakeService:
         return self.graph
 
 
-def run(monkeypatch, service, *args, exit_code=0):
+def run(monkeypatch, service, command, *args, exit_code=0):
     monkeypatch.setattr(cli, "exchange_refresh_token", lambda slug: ("", "token", 0))
+    monkeypatch.setattr(cli, "validate_project_slug", lambda server_url, slug: None)
     monkeypatch.setattr(cli, "get_server_url", lambda: "https://acc.example")
     monkeypatch.setattr(cli, "AcceleratorTerminalCliProjectService", lambda **kw: service)
-    result = CliRunner().invoke(cli.app, [*args, "-p", "demo"], env={"COLUMNS": "200"})
+    result = CliRunner().invoke(cli.app, [command, "demo", *args], env={"COLUMNS": "200"})
     assert result.exit_code == exit_code, result.output
     return result.output
 
@@ -48,7 +51,7 @@ def test_jobs_lists_types_and_joins_status_filters(monkeypatch):
     ])])
     output = run(monkeypatch, service, "jobs", "-s", "error,processing", "--status", "done", "-n", "3")
 
-    assert service.calls == [dict(limit=3, cursor=None, status="error,processing,done")]
+    assert service.calls == [dict(limit=3, status="error,processing,done")]
     rows = {line.split()[0]: line for line in output.splitlines() if line.strip()[:1].isdigit()}
     assert "children+callback" in rows["3"] and "PROCESSING" in rows["3"]
     assert "standalone" in rows["2"] and "ERROR" in rows["2"]
@@ -56,15 +59,17 @@ def test_jobs_lists_types_and_joins_status_filters(monkeypatch):
     assert "Showing" not in output
 
 
-def test_jobs_all_follows_cursor(monkeypatch):
-    service = FakeService([
-        dict(count=2, next_cursor="c1", results=[job(2, "b")]),
-        dict(count=2, next_cursor=None, results=[job(1, "a")]),
-    ])
-    output = json.loads(run(monkeypatch, service, "jobs", "--all", "--json"))
+def test_jobs_fetches_one_page_and_points_to_n(monkeypatch):
+    service = FakeService([dict(count=25, next_cursor="c1", results=[job(2, "b"), job(1, "a")])])
+    output = run(monkeypatch, service, "jobs")
 
-    assert [j["id"] for j in output["results"]] == [2, 1]
-    assert service.calls[1]["cursor"] == "c1"
+    assert service.calls == [dict(limit=10, status=None)]
+    assert "Showing 2 of 25 jobs. Use -n to see more." in output
+
+
+def test_jobs_requires_project(monkeypatch):
+    result = CliRunner().invoke(cli.app, ["jobs"])
+    assert result.exit_code != 0 and "Missing argument 'project_slug'" in result.output
 
 
 def test_jobs_shows_api_error(monkeypatch):
@@ -96,8 +101,8 @@ def test_leaf_job_shows_only_its_own_status(monkeypatch):
     assert output.startswith("Job #13  after a")
     assert "Status    DONE" in output and "Graph status" not in output
     assert "callback after #11" in output
-    assert "Part of   #10 root  ERROR  5 jobs  accli job 10" in output
-    assert "accli logs 13" in output
+    assert "Part of   #10 root  ERROR  5 jobs  accli job demo 10" in output
+    assert "accli logs demo 13" in output
     assert "Jobs in" not in output
 
 
@@ -138,3 +143,18 @@ def test_graph_status_leaves_out_the_job_itself(monkeypatch):
     output = run(monkeypatch, FakeService(graph=graph), "job", "1")
     assert "Status        KILLED" in output
     assert "Graph status  DONE  1 jobs below: 1 DONE" in output
+
+
+def test_commands_validate_the_project_first(monkeypatch):
+    checked = []
+
+    def validate(server_url, slug):
+        checked.append((server_url, slug))
+        raise cli.typer.Exit(1)
+
+    monkeypatch.setattr(cli, "get_server_url", lambda: "https://acc.example")
+    monkeypatch.setattr(cli, "validate_project_slug", validate)
+    monkeypatch.setattr(cli, "AcceleratorTerminalCliProjectService", lambda **kw: pytest.fail("API called"))
+    for args in (["jobs", "nope"], ["job", "nope", "1"], ["logs", "nope", "1"]):
+        assert CliRunner().invoke(cli.app, args).exit_code == 1
+    assert checked == [("https://acc.example", "nope")] * 3

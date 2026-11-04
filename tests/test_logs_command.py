@@ -36,10 +36,11 @@ def chunk(seq, url, end):
 def run(monkeypatch, pages, *args):
     service = FakeService(pages)
     monkeypatch.setattr(cli, "exchange_refresh_token", lambda slug: ("", "token", 0))
+    monkeypatch.setattr(cli, "validate_project_slug", lambda server_url, slug: None)
     monkeypatch.setattr(cli, "get_server_url", lambda: "https://acc.example")
     monkeypatch.setattr(cli, "AcceleratorTerminalCliProjectService", lambda **kw: service)
     monkeypatch.setattr(cli.time, "sleep", lambda s: None)
-    result = CliRunner().invoke(cli.app, ["logs", "42", "-p", "demo", "--no-time", *args])
+    result = CliRunner().invoke(cli.app, ["logs", "demo", "42", "--no-time", *args])
     assert result.exit_code == 0, result.output
     return result.output.splitlines(), service
 
@@ -65,3 +66,4 @@ def test_without_follow_prints_partial_line_once(monkeypatch):
 
     assert [line.split(None, 1)[1] for line in output] == ["starting", "downloading 4"]
     assert len(service.calls) == 1
+

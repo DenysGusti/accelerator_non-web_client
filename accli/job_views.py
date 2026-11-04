@@ -170,7 +170,7 @@ def _own_status(job):
     return text
 
 
-def job_details(graph, job_id):
+def job_details(graph, job_id, project_slug):
     """Key/value block for one job. Graph status covers the jobs below it, when it has any."""
     job = next(j for j in graph["jobs"] if j["id"] == job_id)
     jobs = subtree(graph, job_id)
@@ -199,10 +199,10 @@ def job_details(graph, job_id):
         part_of.append("  ")
         part_of.append_text(status_text(graph["graph_status"]))
         part_of.append(f"  {len(graph['jobs'])} jobs  ", style="dim")
-        part_of.append(f"accli job {root['id']}", style="cyan")
+        part_of.append(f"accli job {project_slug} {root['id']}", style="cyan")
         table.add_row("Part of", part_of)
 
-    table.add_row("Logs", Text(f"accli logs {job['id']}", style="cyan"))
+    table.add_row("Logs", Text(f"accli logs {project_slug} {job['id']}", style="cyan"))
 
     title = Text()
     title.append(f"Job #{job['id']}", style="bold")
