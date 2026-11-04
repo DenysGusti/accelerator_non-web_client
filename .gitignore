@@ -10,5 +10,4 @@ pyapp-latest/
 
 certs/*
 !certs/.gitkeep
-!certs/prod-s3-internal.crt
 !certs/accli-windows-code-signing.crt

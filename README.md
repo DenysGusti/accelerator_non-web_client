@@ -94,14 +94,11 @@ Usage: accli [OPTIONS] COMMAND [ARGS]...
 
 ### Handling self-signed certificates
 
-1. Copy and paste certificates from `<control_services_backend>/certs/ca.crt` as
-   `./certs/dev-backend.crt` and `<accelerator_service>/minio_certs/ca.crt` as
-   `./certs/dev-minio-ca.crt`.
-2. Run as Administrator
-   ```
-   cd scripts
-   .\import_certs_certutil.ps1
-   ```
+Import the certificates from `accelerator_service` into the Windows Root store (auto-elevates to Administrator if needed):
+```powershell
+cd <path to>/accelerator_service/scripts
+.\import_certs_certutil.ps1
+```
 
 ### 🛠 Build & Upload
 
