@@ -5,6 +5,7 @@ import time
 import platform
 import threading
 import subprocess
+import webbrowser
 from pathlib import Path
 
 def setup_tcl_tk_env():
@@ -33,7 +34,7 @@ from tkinter import ttk, messagebox, filedialog
 
 # Ensure PyInstaller static analyzer traces and bundles all CLI dependencies
 import accli.cli
-from accli.version_checker import check_for_updates, get_upgrade_instruction
+from accli.version_checker import RELEASES_URL, check_for_updates, get_upgrade_instruction
 from accli._version import VERSION
 
 class AccliGuiApp(tk.Tk):
@@ -128,13 +129,76 @@ class AccliGuiApp(tk.Tk):
                 def show_notice():
                     self.status_bar_val.set(f"Update available: accli {latest} (current: {VERSION})")
                     self.append_log(f"\n🔔 Update available: accli {latest} (current: {VERSION})\n{instruction}\n\n")
-                    # Also show subtle info notification
-                    messagebox.showinfo(
-                        "Update Available",
-                        f"Update available: accli {latest} (current: {VERSION})\n\n{instruction}"
-                    )
+                    self.show_update_dialog(latest, instruction)
                 self.after(0, show_notice)
         threading.Thread(target=worker, daemon=True).start()
+
+    def show_update_dialog(self, latest: str, instruction: str):
+        dialog = tk.Toplevel(self)
+        dialog.title("Update Available")
+        dialog.configure(bg="#1e1e1e")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+
+        frame = ttk.Frame(dialog, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text=f"Update available: accli {latest} (current: {VERSION})",
+            font=("Segoe UI", 11, "bold"),
+        ).pack(anchor=tk.W, pady=(0, 10))
+
+        if RELEASES_URL in instruction:
+            prompt_text = "Download the latest release from:"
+            copy_value = RELEASES_URL
+        else:
+            prompt_text = instruction
+            copy_value = "pip install -U accli"
+
+        ttk.Label(frame, text=prompt_text).pack(anchor=tk.W, pady=(0, 5))
+
+        link_var = tk.StringVar(value=copy_value)
+        link_entry = tk.Entry(
+            frame,
+            textvariable=link_var,
+             state="readonly",
+            readonlybackground="#2d2d2d",
+            fg="#4ec9b0",
+            relief=tk.FLAT,
+            font=("Segoe UI", 10),
+            width=58,
+        )
+        link_entry.pack(fill=tk.X, pady=(0, 15), ipady=4)
+        link_entry.selection_range(0, tk.END)
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill=tk.X)
+
+        def copy_to_clipboard():
+            self.clipboard_clear()
+            self.clipboard_append(copy_value)
+            self.update()
+            copy_btn.configure(text="Copied!")
+            dialog.after(1500, lambda: copy_btn.configure(text="Copy Link" if RELEASES_URL in instruction else "Copy"))
+
+        copy_btn = ttk.Button(
+            btn_frame,
+            text="Copy Link" if RELEASES_URL in instruction else "Copy",
+            command=copy_to_clipboard,
+        )
+        copy_btn.pack(side=tk.LEFT, padx=(0, 8))
+
+        if RELEASES_URL in instruction:
+            open_btn = ttk.Button(
+                btn_frame,
+                text="Open in Browser",
+                command=lambda: webbrowser.open(RELEASES_URL),
+            )
+            open_btn.pack(side=tk.LEFT, padx=(0, 8))
+
+        ok_btn = ttk.Button(btn_frame, text="OK", style="Refresh.TButton", command=dialog.destroy)
+        ok_btn.pack(side=tk.RIGHT)
 
     def run_cli_async(self, args, on_done=None, log_to_viewer=True, elevate=False):
         """Runs the CLI binary in a background thread to prevent UI freezing."""
