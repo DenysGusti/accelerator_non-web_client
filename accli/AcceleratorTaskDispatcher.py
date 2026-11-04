@@ -102,9 +102,11 @@ def _upload_cas_file_worker(args):
     if presigned_push_url:
         print(f"Uploading {rel_path}...")
         with open(file_path, 'rb') as f:
+            data = f.read()
             res = requests.put(
                 presigned_push_url,
-                data=f,
+                data=data,
+                headers={"Content-Length": str(len(data))},
                 verify=False,
             )
             res.raise_for_status()

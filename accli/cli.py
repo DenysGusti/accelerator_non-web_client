@@ -27,6 +27,7 @@ from typing_extensions import Annotated
 
 from ._version import VERSION
 from . import mount_downloader
+from .version_checker import check_for_updates, get_upgrade_instruction
 
 warnings.filterwarnings('ignore')
 
@@ -35,8 +36,34 @@ ACCLI_DEBUG = os.environ.get('ACCLI_DEBUG', False)
 app = typer.Typer(
     add_completion=False,
     pretty_exceptions_show_locals=False,
-    no_args_is_help=True
+    no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]}
 )
+
+
+def version_callback(value: bool):
+    if value:
+        print(f"[bold cyan]accli version: {VERSION}[/bold cyan]")
+        update_avail, latest = check_for_updates()
+        if update_avail:
+            instruction = get_upgrade_instruction()
+            print(f"[bold yellow]🔔 A new version of accli is available: {latest} (Current: {VERSION})[/bold yellow]")
+            print(f"[yellow]{instruction}[/yellow]\n")
+        raise typer.Exit()
+
+
+@app.callback()
+def main_callback(
+    version: Annotated[
+        bool,
+        typer.Option("--version", "-v", callback=version_callback, is_eager=True, help="Show the version and exit.")
+    ] = False,
+):
+    update_avail, latest = check_for_updates()
+    if update_avail:
+        instruction = get_upgrade_instruction()
+        print(f"[bold yellow]🔔 Update available: accli {latest} (current: {VERSION})[/bold yellow]")
+        print(f"[yellow]{instruction}[/yellow]\n")
 
 
 def get_size(path):
@@ -61,12 +88,26 @@ def pushd(new_dir):
 
 @app.command()
 def about():
-    print(
-        "[bold cyan]This is a terminal client for Accelerator hosted on https://accelerator.iiasa.ac.at . [/bold cyan]\n")
-    print(
-        "[bold cyan]Please file feature requests and suggestions at https://github.com/iiasa/accli/issues .[/bold cyan]\n")
-    print("[bold cyan]License: The MIT License (MIT)[/bold cyan]\n")
-    print(f"[bold cyan]Version: {VERSION}[/bold cyan]\n")
+    """Display information about Accelerator CLI and current version."""
+    print("[bold cyan]This is a terminal client for Accelerator: https://accelerator.iiasa.ac.at[/bold cyan]")
+    print("[bold cyan]Feature requests & suggestions: https://github.com/iiasa/accli/issues[/bold cyan]")
+    print("[bold cyan]License: The MIT License (MIT)[/bold cyan]")
+    print(f"[bold cyan]Version: {VERSION}[/bold cyan]")
+    update_avail, latest = check_for_updates()
+    if update_avail:
+        instruction = get_upgrade_instruction()
+        print(f"[bold yellow]🔔 A new version of accli is available: {latest} (Current: {VERSION})[/bold yellow]")
+        print(f"[yellow]{instruction}[/yellow]\n")
+
+
+@app.command()
+def gui():
+    """Launch the Accelerator Graphical User Interface (GUI)."""
+    try:
+        from accli.gui import main as gui_main
+        gui_main()
+    except Exception as e:
+        print(f"[bold red]Failed to start GUI: {e}[/bold red]")
 
 
 @app.command()
@@ -76,6 +117,7 @@ def login(
         webcli: Annotated[str, typer.Option(..., '-c',
                                             help="Accelerator web client for authorization.")] = "https://accelerator.iiasa.ac.at"
 ):
+    """Authenticate with the Accelerator server using device authorization."""
     print(
         f"[bold cyan]Welcome to Accelerator Terminal Client.[/bold cyan]\n"
         f"[bold cyan]Powered by IIASA[/bold cyan]\n"
@@ -113,6 +155,7 @@ def validate(
         server: Annotated[
             str, typer.Option(..., '-s', help="Accelerator server url.")] = "https://accelerator.iiasa.ac.at",
 ):
+    """Validate regional timeseries CSV data against project templates."""
     term_cli_project_service = AcceleratorTerminalCliProjectService(
         user_token="",
         server_url=server,
@@ -135,6 +178,7 @@ def dispatch(
         root_task_variable: Annotated[str, typer.Argument(help="Root task variable in workflow_file.")],
         workflow_filename: Annotated[str, typer.Option(..., '-f', help="Python workflow filepath.")] = "wkube.py"
 ):
+    """Dispatch and submit computational workflow tasks to Accelerator."""
     set_project_slug(project_slug)
     server_url = get_server_url()
     # Exchange the refresh token for a short-lived access token
