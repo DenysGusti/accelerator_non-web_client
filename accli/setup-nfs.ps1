@@ -152,8 +152,11 @@ if ($cfg.skip_auto_mount) {
     $env:HF_MOUNT_SKIP_AUTO_MOUNT = "1"
 }
 
-# Ensure NfsClnt service is started before attempting mount
+# Ensure NfsRdr and NfsClnt services are started before attempting mount
 try {
+    if ((Get-Service -Name "NfsRdr" -ErrorAction SilentlyContinue).Status -ne 'Running') {
+        Start-Service -Name "NfsRdr" -ErrorAction SilentlyContinue
+    }
     if ((Get-Service -Name "NfsClnt" -ErrorAction SilentlyContinue).Status -ne 'Running') {
         Start-Service -Name "NfsClnt" -ErrorAction SilentlyContinue
     }
@@ -217,6 +220,14 @@ try {
     Get-CimInstance Win32_Process -Filter "name='hf-mount-nfs.exe'" | ForEach-Object {
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue | Out-Null
     }
+} catch {}
+
+# Synchronously stop NfsClnt & NfsRdr, then start NfsRdr & NfsClnt to flush stale kernel V_NET_ROOT cache
+try {
+    Stop-Service -Name "NfsClnt" -Force -ErrorAction SilentlyContinue
+    Stop-Service -Name "NfsRdr" -Force -ErrorAction SilentlyContinue
+    Start-Service -Name "NfsRdr" -ErrorAction SilentlyContinue
+    Start-Service -Name "NfsClnt" -ErrorAction SilentlyContinue
 } catch {}
 '@
 
