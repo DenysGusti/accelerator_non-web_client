@@ -222,12 +222,18 @@ try {
     }
 } catch {}
 
-# Synchronously stop NfsClnt & NfsRdr, then start NfsRdr & NfsClnt to flush stale kernel V_NET_ROOT cache
+# Force-kill nfsclnt.exe so NfsClnt never hangs in STOP_PENDING, then cycle NfsRdr & NfsClnt to flush stale kernel V_NET_ROOT cache
 try {
-    Stop-Service -Name "NfsClnt" -Force -ErrorAction SilentlyContinue
-    Stop-Service -Name "NfsRdr" -Force -ErrorAction SilentlyContinue
-    Start-Service -Name "NfsRdr" -ErrorAction SilentlyContinue
-    Start-Service -Name "NfsClnt" -ErrorAction SilentlyContinue
+    Stop-Process -Name "nfsclnt" -Force -ErrorAction SilentlyContinue | Out-Null
+    Stop-Service -Name "NfsClnt" -Force -ErrorAction SilentlyContinue | Out-Null
+    Stop-Service -Name "NfsRdr" -Force -ErrorAction SilentlyContinue | Out-Null
+    Start-Service -Name "NfsRdr" -ErrorAction SilentlyContinue | Out-Null
+    for ($i = 0; $i -lt 5; $i++) {
+        $svc = Get-Service -Name "NfsClnt" -ErrorAction SilentlyContinue
+        if ($svc -and $svc.Status -eq 'Running') { break }
+        Start-Service -Name "NfsClnt" -ErrorAction SilentlyContinue | Out-Null
+        Start-Sleep -Milliseconds 500
+    }
 } catch {}
 '@
 

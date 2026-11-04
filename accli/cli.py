@@ -1093,6 +1093,14 @@ def map_windows_network_drive(mount_point_abs, max_attempts: int) -> tuple[bool,
     for attempt in range(1, max_attempts + 1):
         cleanup_stuck_windows_mount_processes()
 
+        # Ensure any prior accli-umount-nfs task has finished and NfsClnt is RUNNING (prevents Network Error - 1222)
+        for _ in range(10):
+            umount_check = subprocess.run(["schtasks", "/query", "/tn", "accli-umount-nfs"], capture_output=True, text=True, errors="replace")
+            clnt_check = subprocess.run(["sc.exe", "query", "NfsClnt"], capture_output=True, text=True, errors="replace")
+            if (not umount_check.stdout or "Running" not in umount_check.stdout) and (clnt_check.stdout and "RUNNING" in clnt_check.stdout):
+                break
+            time.sleep(0.5)
+
         # If daemon died before or between attempts, revive it
         if not is_nfs_daemon_running():
             subprocess.run(["schtasks", "/run", "/tn", "accli-mount-nfs"], capture_output=True)
@@ -1234,21 +1242,38 @@ def enable_windows_nfs_features():
     reg_ok = reg_ok and anon_ok and cache_ok
     
     if nfs_ok and reg_ok and task_ok:
-        # Ensure run-umount-helper.ps1 includes the NfsRdr/NfsClnt kernel cache flush
+        # Ensure run-umount-helper.ps1 includes fast nfsclnt termination and NfsRdr/NfsClnt kernel cache flush
         try:
             umount_helper = Path("C:/ProgramData/accli/run-umount-helper.ps1")
             if umount_helper.is_file():
                 content = umount_helper.read_text(encoding="utf-8", errors="ignore")
-                if "Stop-Service -Name \"NfsRdr\"" not in content:
+                if 'Stop-Process -Name "nfsclnt"' not in content:
                     umount_helper.write_text(
-                        content.rstrip()
-                        + "\n\n# Synchronously stop NfsClnt & NfsRdr, then start NfsRdr & NfsClnt to flush stale kernel V_NET_ROOT cache\n"
-                        + "try {\n"
-                        + "    Stop-Service -Name \"NfsClnt\" -Force -ErrorAction SilentlyContinue\n"
-                        + "    Stop-Service -Name \"NfsRdr\" -Force -ErrorAction SilentlyContinue\n"
-                        + "    Start-Service -Name \"NfsRdr\" -ErrorAction SilentlyContinue\n"
-                        + "    Start-Service -Name \"NfsClnt\" -ErrorAction SilentlyContinue\n"
-                        + "} catch {}\n",
+                        'try {\n'
+                        '    if (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue) {\n'
+                        '        Stop-ScheduledTask -TaskName "accli-mount-nfs" -ErrorAction SilentlyContinue | Out-Null\n'
+                        '    } else {\n'
+                        '        schtasks /end /tn "accli-mount-nfs" 2> $null | Out-Null\n'
+                        '    }\n'
+                        '} catch {}\n\n'
+                        'try {\n'
+                        '    Get-CimInstance Win32_Process -Filter "name=\'hf-mount-nfs.exe\'" | ForEach-Object {\n'
+                        '        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue | Out-Null\n'
+                        '    }\n'
+                        '} catch {}\n\n'
+                        '# Force-kill nfsclnt.exe so NfsClnt never hangs in STOP_PENDING, then cycle NfsRdr & NfsClnt to flush stale kernel V_NET_ROOT cache\n'
+                        'try {\n'
+                        '    Stop-Process -Name "nfsclnt" -Force -ErrorAction SilentlyContinue | Out-Null\n'
+                        '    Stop-Service -Name "NfsClnt" -Force -ErrorAction SilentlyContinue | Out-Null\n'
+                        '    Stop-Service -Name "NfsRdr" -Force -ErrorAction SilentlyContinue | Out-Null\n'
+                        '    Start-Service -Name "NfsRdr" -ErrorAction SilentlyContinue | Out-Null\n'
+                        '    for ($i = 0; $i -lt 5; $i++) {\n'
+                        '        $svc = Get-Service -Name "NfsClnt" -ErrorAction SilentlyContinue\n'
+                        '        if ($svc -and $svc.Status -eq \'Running\') { break }\n'
+                        '        Start-Service -Name "NfsClnt" -ErrorAction SilentlyContinue | Out-Null\n'
+                        '        Start-Sleep -Milliseconds 500\n'
+                        '    }\n'
+                        '} catch {}\n',
                         encoding="utf-8",
                     )
         except Exception:
@@ -1582,6 +1607,8 @@ def mount_start(
                         print(f"[bold red][ERROR] NFS daemon started, but failed to map drive {mount_point_abs} in user session.[/bold red]")
                         if err_msg:
                             print(f"[red]{err_msg}[/red]")
+                        # Clean up the spawned daemon so a failed mount does not leave a zombie daemon running
+                        subprocess.run(["schtasks", "/run", "/tn", "accli-umount-nfs"], capture_output=True)
                         print("[yellow]Tip: Make sure Windows NFS client feature was fully enabled and the PC was restarted.[/yellow]")
                         raise typer.Exit(1)
                 else:
