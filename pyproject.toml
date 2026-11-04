@@ -11,7 +11,7 @@ authors = [
 description = "IIASA Accelerator Client"
 readme = "README.md"
 license = {file = "LICENSE"}
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 dependencies = [
     "urllib3>=1.26.5",        # 2.0.7 is recent, but 1.26.5+ is widely compatible
     "typer[all]>=0.4.0",      # 0.4.0+ is stable and has most features
