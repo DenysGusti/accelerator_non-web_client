@@ -1103,7 +1103,7 @@ def map_windows_network_drive(mount_point_abs, max_attempts: int) -> tuple[bool,
             if res.returncode == 0:
                 # Confirm drive is actually mounted and directory listing is populated and queryable
                 drive_ready = False
-                for _ in range(30):
+                for _ in range(10):
                     try:
                         if os.path.exists(drive_root):
                             entries = os.listdir(drive_root)
@@ -1115,8 +1115,15 @@ def map_windows_network_drive(mount_point_abs, max_attempts: int) -> tuple[bool,
                     time.sleep(0.5)
                 if not drive_ready:
                     last_err = f"mount.exe reported success but drive {drive_root} was empty or not accessible"
-                    # Clean up the stale mount connection so next attempt can remount fresh
+                    # Clean up the stale mount connection and reset NfsRdr kernel cache so next attempt can remount fresh
                     subprocess.run(["net", "use", target_str, "/delete", "/y"], capture_output=True)
+                    subprocess.run(["schtasks", "/run", "/tn", "accli-umount-nfs"], capture_output=True)
+                    for _ in range(16):
+                        time.sleep(0.5)
+                        umount_check = subprocess.run(["schtasks", "/query", "/tn", "accli-umount-nfs"], capture_output=True, text=True, errors="replace")
+                        clnt_check = subprocess.run(["sc.exe", "query", "NfsClnt"], capture_output=True, text=True, errors="replace")
+                        if (not umount_check.stdout or "Running" not in umount_check.stdout) and (clnt_check.stdout and "RUNNING" in clnt_check.stdout):
+                            break
             else:
                 last_err = (res.stderr or res.stdout or "").strip()
                 if "85" in last_err or "already in use" in last_err.lower():
@@ -1227,6 +1234,25 @@ def enable_windows_nfs_features():
     reg_ok = reg_ok and anon_ok and cache_ok
     
     if nfs_ok and reg_ok and task_ok:
+        # Ensure run-umount-helper.ps1 includes the NfsRdr/NfsClnt kernel cache flush
+        try:
+            umount_helper = Path("C:/ProgramData/accli/run-umount-helper.ps1")
+            if umount_helper.is_file():
+                content = umount_helper.read_text(encoding="utf-8", errors="ignore")
+                if "Stop-Service -Name \"NfsRdr\"" not in content:
+                    umount_helper.write_text(
+                        content.rstrip()
+                        + "\n\n# Synchronously stop NfsClnt & NfsRdr, then start NfsRdr & NfsClnt to flush stale kernel V_NET_ROOT cache\n"
+                        + "try {\n"
+                        + "    Stop-Service -Name \"NfsClnt\" -Force -ErrorAction SilentlyContinue\n"
+                        + "    Stop-Service -Name \"NfsRdr\" -Force -ErrorAction SilentlyContinue\n"
+                        + "    Start-Service -Name \"NfsRdr\" -ErrorAction SilentlyContinue\n"
+                        + "    Start-Service -Name \"NfsClnt\" -ErrorAction SilentlyContinue\n"
+                        + "} catch {}\n",
+                        encoding="utf-8",
+                    )
+        except Exception:
+            pass
         print("[bold green][OK] Windows NFS client features, registry policies, and Task Scheduler gateway are already configured.[/bold green]")
         return
         
@@ -1839,6 +1865,14 @@ def mount_stop(
             for _ in range(10):
                 sched_check = subprocess.run(["schtasks", "/query", "/tn", "accli-mount-nfs"], capture_output=True, text=True, errors="replace")
                 if not sched_check.stdout or "Running" not in sched_check.stdout:
+                    break
+                time.sleep(0.5)
+
+            # Wait for accli-umount-nfs to finish restarting NfsRdr/NfsClnt
+            for _ in range(16):
+                umount_check = subprocess.run(["schtasks", "/query", "/tn", "accli-umount-nfs"], capture_output=True, text=True, errors="replace")
+                clnt_check = subprocess.run(["sc.exe", "query", "NfsClnt"], capture_output=True, text=True, errors="replace")
+                if (not umount_check.stdout or "Running" not in umount_check.stdout) and (clnt_check.stdout and "RUNNING" in clnt_check.stdout):
                     break
                 time.sleep(0.5)
 
