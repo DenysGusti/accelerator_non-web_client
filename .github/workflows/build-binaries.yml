@@ -97,16 +97,16 @@ jobs:
               ./configure --enable-shared --prefix=/usr/local LDFLAGS=\"-Wl,-rpath=/usr/local/lib\" && \
               make -j\$(nproc) && make altinstall && cd .. && \
               pip3.12 install dist/*.whl pyinstaller && \
-              python3.12 -m PyInstaller --noconsole --onefile --name \"$GUI_NAME\" --collect-all accli accli/gui.py
+              python3.12 -m PyInstaller --noconsole --onefile --icon accli/acc_logo.png --name \"$GUI_NAME\" --collect-all accli accli/gui.py
             "
           elif [ "${{ matrix.os }}" == "windows-latest" ]; then
             pip install dist/*.whl pyinstaller
             GUI_NAME="accli-gui-windows.exe"
-            pyinstaller --noconsole --onefile --name "$GUI_NAME" --collect-all accli accli/gui.py
+            pyinstaller --noconsole --onefile --icon accli/acc_logo.ico --name "$GUI_NAME" --collect-all accli accli/gui.py
           else
             pip install dist/*.whl pyinstaller
             GUI_NAME="accli-gui-macos"
-            pyinstaller --noconsole --onefile --name "$GUI_NAME" --collect-all accli accli/gui.py
+            pyinstaller --noconsole --onefile --icon accli/acc_logo.png --name "$GUI_NAME" --collect-all accli accli/gui.py
           fi
           
           cp dist/"$GUI_NAME" dist/binaries/"$GUI_NAME"

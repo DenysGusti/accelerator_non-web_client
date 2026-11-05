@@ -32,7 +32,7 @@ classifiers = [
 packages = ['accli']
 
 [tool.setuptools.package-data]
-accli = ["*.ps1"]
+accli = ["*.ps1", "*.png", "*.ico"]
 
 [tool.setuptools.dynamic]
 version = {attr="accli._version.VERSION"}
