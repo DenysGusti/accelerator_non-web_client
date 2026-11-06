@@ -106,6 +106,16 @@ Show a job's status and details. For a job holding children or callbacks, Graph 
 ```bash
 accli job my-project 1234
 accli job my-project 1234 --json
+accli job show my-project 1234
+```
+
+`accli job <project> <job>` is the same as `accli job show <project> <job>`.
+
+Restart a job that is done or failed. The job can be a root job or a child job. The command fails if that job, a parent, or a descendant is still processing. `--rebuild` builds the container image again before the job starts.
+
+```bash
+accli job restart my-project 1234
+accli job restart my-project 1234 --rebuild
 ```
 
 ---

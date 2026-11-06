@@ -169,6 +169,18 @@ class AcceleratorTerminalCliProjectService:
         )
         return todict(res.data)
 
+    def restart_job(self, project_slug, job_id, rebuild_container_image=False):
+        query = urlencode({"rebuild_container_image": "true"}) if rebuild_container_image else ""
+        url = f"{self.cli_base_url}/{project_slug}/jobs/restart/{job_id}/"
+        if query:
+            url = f"{url}?{query}"
+        res = self.http_client_request(
+            "GET",
+            url,
+            headers=self.common_request_headers
+        )
+        return todict(res.data)
+
     def get_job_logs(self, project_slug, job_id, sources=None, attempt=None, before=None, after=None, limit=None):
         params = dict(sources=sources, attempt=attempt, before=before, after=after, limit=limit)
         query = urlencode({k: v for k, v in params.items() if v is not None})
