@@ -32,6 +32,14 @@ class FakeService:
         self.calls.append(dict(job_id=job_id))
         return self.graph
 
+    def restart_job(self, project_slug, job_id, rebuild_container_image=False):
+        self.calls.append(dict(
+            project_slug=project_slug, job_id=job_id, rebuild_container_image=rebuild_container_image
+        ))
+        if self.error:
+            raise self.error
+        return True
+
 
 def run(monkeypatch, service, command, *args, exit_code=0):
     monkeypatch.setattr(cli, "exchange_refresh_token", lambda slug: ("", "token", 0))
@@ -145,6 +153,49 @@ def test_graph_status_leaves_out_the_job_itself(monkeypatch):
     assert "Graph status  DONE  1 jobs below: 1 DONE" in output
 
 
+def test_job_restart_sends_project_and_job_id(monkeypatch):
+    service = FakeService()
+    monkeypatch.setattr(cli, "exchange_refresh_token", lambda slug: ("", "token", 0))
+    monkeypatch.setattr(cli, "validate_project_slug", lambda server_url, slug: None)
+    monkeypatch.setattr(cli, "get_server_url", lambda: "https://acc.example")
+    monkeypatch.setattr(cli, "AcceleratorTerminalCliProjectService", lambda **kw: service)
+
+    result = CliRunner().invoke(cli.app, ["job", "restart", "demo", "15"])
+
+    assert result.exit_code == 0, result.output
+    assert service.calls == [dict(project_slug="demo", job_id=15, rebuild_container_image=False)]
+    assert "Restarted job #ID: 15" in result.output
+
+
+def test_job_restart_can_rebuild_the_image(monkeypatch):
+    service = FakeService()
+    monkeypatch.setattr(cli, "exchange_refresh_token", lambda slug: ("", "token", 0))
+    monkeypatch.setattr(cli, "validate_project_slug", lambda server_url, slug: None)
+    monkeypatch.setattr(cli, "get_server_url", lambda: "https://acc.example")
+    monkeypatch.setattr(cli, "AcceleratorTerminalCliProjectService", lambda **kw: service)
+
+    result = CliRunner().invoke(cli.app, ["job", "restart", "demo", "15", "--rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert service.calls == [dict(project_slug="demo", job_id=15, rebuild_container_image=True)]
+
+
+def test_job_restart_shows_api_error(monkeypatch):
+    class Res:
+        data = b'{"detail": "Jobs which parents or descendants jobs are still in processing state cannot be restarted."}'
+
+    service = FakeService(error=AccAPIError("bad", Res(), 400))
+    monkeypatch.setattr(cli, "exchange_refresh_token", lambda slug: ("", "token", 0))
+    monkeypatch.setattr(cli, "validate_project_slug", lambda server_url, slug: None)
+    monkeypatch.setattr(cli, "get_server_url", lambda: "https://acc.example")
+    monkeypatch.setattr(cli, "AcceleratorTerminalCliProjectService", lambda **kw: service)
+
+    result = CliRunner().invoke(cli.app, ["job", "restart", "demo", "15"])
+
+    assert result.exit_code == 1
+    assert "still in processing state cannot be restarted" in result.output
+
+
 def test_commands_validate_the_project_first(monkeypatch):
     checked = []
 
@@ -155,6 +206,6 @@ def test_commands_validate_the_project_first(monkeypatch):
     monkeypatch.setattr(cli, "get_server_url", lambda: "https://acc.example")
     monkeypatch.setattr(cli, "validate_project_slug", validate)
     monkeypatch.setattr(cli, "AcceleratorTerminalCliProjectService", lambda **kw: pytest.fail("API called"))
-    for args in (["jobs", "nope"], ["job", "nope", "1"], ["logs", "nope", "1"]):
+    for args in (["jobs", "nope"], ["job", "nope", "1"], ["job", "restart", "nope", "1"], ["logs", "nope", "1"]):
         assert CliRunner().invoke(cli.app, args).exit_code == 1
-    assert checked == [("https://acc.example", "nope")] * 3
+    assert checked == [("https://acc.example", "nope")] * 4

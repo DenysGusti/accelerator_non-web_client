@@ -319,7 +319,8 @@ def jobs(
 
     TYPE is standalone, children, callback or children+callback. GRAPH is the status
     of everything below the root job, and what --status filters on. See a job's
-    status and everything it holds with `accli job <project> <job>`.
+    status and everything it holds with `accli job <project> <job>`. Restart a job
+    with `accli job restart <project> <job>`.
     """
     service = _cli_service_for(project_slug)
     status_filter = ",".join(t.strip() for s in (status or []) for t in s.split(",") if t.strip()) or None
@@ -344,8 +345,28 @@ def jobs(
         print(f"[dim]Showing {len(results)} of {count} jobs. Use -n to see more.[/dim]")
 
 
-@app.command()
-def job(
+class JobDefaultGroup(typer.core.TyperGroup):
+    """Keep `accli job <project> <job>` as the show command."""
+
+    def parse_args(self, ctx, args):
+        if not args or (args[0] not in self.commands and not args[0].startswith("-")):
+            args = ["show", *args]
+        return super().parse_args(ctx, args)
+
+
+job_app = typer.Typer(
+    cls=JobDefaultGroup,
+    help="Show or restart a job. `accli job <project> <job>` shows the job.",
+    no_args_is_help=False,
+    add_completion=False,
+    pretty_exceptions_show_locals=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+app.add_typer(job_app, name="job")
+
+
+@job_app.command("show")
+def job_show(
         project_slug: Annotated[str, typer.Argument(help="Unique Accelerator project slug.")],
         job_id: Annotated[int, typer.Argument(help="Job ID: a single job, or one holding children and callbacks.")],
         as_json: Annotated[bool, typer.Option(..., '--json', help="Print the raw JSON.")] = False,
@@ -353,7 +374,8 @@ def job(
     """Show a job's status and details. For a job holding children or callbacks, Graph status
     covers the jobs below it, the same as GRAPH in `accli jobs`, and each one is listed.
 
-    See a job's output with `accli logs <project> <job>`.
+    See a job's output with `accli logs <project> <job>`. Restart it with
+    `accli job restart <project> <job>`.
     """
     service = _cli_service_for(project_slug)
     try:
@@ -373,6 +395,27 @@ def job(
         print()
         print(Text(f"Jobs in #{job_id}", style="bold"))
         print(job_views.jobs_table(job_graph, job_id))
+
+
+@job_app.command("restart")
+def job_restart(
+        project_slug: Annotated[str, typer.Argument(help="Unique Accelerator project slug.")],
+        job_id: Annotated[int, typer.Argument(help="Job ID. A root job or a child job.")],
+        rebuild: Annotated[
+            bool, typer.Option("--rebuild", help="Build the container image again before the job starts.")] = False,
+):
+    """Restart a job that is done or failed.
+
+    The job can be a root job or a child job. The command fails if that job, a parent,
+    or a descendant is still processing.
+    """
+    service = _cli_service_for(project_slug)
+    try:
+        service.restart_job(project_slug, job_id, rebuild_container_image=rebuild)
+    except AccAPIError as err:
+        print(f"[bold red]ERROR: {_api_error_detail(err)}[/bold red]")
+        raise typer.Exit(1)
+    print(f"Restarted job #ID: {job_id}")
 
 
 def compute_sha256(filepath: str) -> str:
