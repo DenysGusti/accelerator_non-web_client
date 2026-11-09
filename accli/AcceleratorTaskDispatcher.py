@@ -118,6 +118,76 @@ def _upload_cas_file_worker(args):
     return {"path": rel_path, "hash": file_hash, "mode": mode}
 
 
+MAX_JOB_FOLDER_BYTES = 1024 * 1024 * 1024  # 1 GB
+
+# Shown when the job folder is too big. These files set up the job's environment and
+# must stay in the job folder. The list is illustrative, not exhaustive.
+DEPENDENCY_FILE_EXAMPLES = (
+    "  Containers: Dockerfile, *.dockerfile, Containerfile, .dockerignore, docker-compose.yml, "
+    "Singularity / *.def, apptainer.def\n"
+    "  Python:     requirements*.txt, constraints.txt, pyproject.toml, setup.py, setup.cfg, Pipfile, "
+    "Pipfile.lock, poetry.lock, uv.lock, pdm.lock, environment.yml, conda-lock.yml, .python-version, runtime.txt\n"
+    "  R:          init.R, install.R, install_packages.R, DESCRIPTION, NAMESPACE, renv.lock, renv/activate.R, "
+    ".Rprofile, packrat/packrat.lock\n"
+    "  Julia:      Project.toml, Manifest.toml\n"
+    "  Node/JS:    package.json, package-lock.json, yarn.lock, pnpm-lock.yaml, .npmrc, .nvmrc\n"
+    "  Go:         go.mod, go.sum\n"
+    "  Rust:       Cargo.toml, Cargo.lock, rust-toolchain.toml\n"
+    "  Java/JVM:   pom.xml, build.gradle, build.gradle.kts, settings.gradle, gradle.properties, "
+    "gradle/wrapper/*, build.sbt\n"
+    "  C/C++:      CMakeLists.txt, *.cmake, Makefile, configure, meson.build, conanfile.txt, conanfile.py, vcpkg.json\n"
+    "  Fortran:    fpm.toml, Makefile\n"
+    "  Ruby/PHP:   Gemfile, Gemfile.lock, composer.json, composer.lock\n"
+    "  .NET:       *.csproj, *.sln, packages.config, global.json\n"
+    "  MATLAB:     *.prj, startup.m, buildfile.m\n"
+    "  GAMS/Optim: solver option files (*.opt), licence/config files the model reads at startup\n"
+    "  System:     apt.txt, packages.txt, install.sh, setup.sh, entrypoint.sh, startscript.sh, Makefile, "
+    "Taskfile.yml, justfile, .env.example, *.conf / config files read during setup\n"
+    "  Also any local package your dependency file points to, e.g. '-e ./mypkg' in requirements.txt "
+    "or a vendored wheel/tarball.\n"
+)
+
+
+def _format_bytes(num_bytes):
+    for unit in ("B", "KB", "MB", "GB"):
+        if num_bytes < 1024 or unit == "GB":
+            return f"{num_bytes:.1f} {unit}" if unit != "B" else f"{num_bytes} B"
+        num_bytes /= 1024
+
+
+def check_job_folder_size(repo_dir, directory, project_slug):
+    """Stop the dispatch if the filtered job folder is larger than MAX_JOB_FOLDER_BYTES."""
+    total = 0
+    for root, _, files in os.walk(repo_dir):
+        for file in files:
+            total += os.path.getsize(os.path.join(root, file))
+
+    if total <= MAX_JOB_FOLDER_BYTES:
+        return
+
+    raise ValueError(
+        f"The job folder '{directory}' is {_format_bytes(total)} after applying include/exclude, "
+        f"which is more than the {_format_bytes(MAX_JOB_FOLDER_BYTES)} limit for job folder uploads.\n\n"
+        f"Upload the full job folder to the project space and run the job from there:\n"
+        f"  1. Upload the whole folder:  accli copy {directory} acc://{project_slug}/<path>\n"
+        f"     accli copy has no include/exclude and uploads everything in the folder, so first remove "
+        f"or move out anything the job does not need, such as .git/, .venv/, venv/, node_modules/, "
+        f"__pycache__/ and local outputs.\n"
+        f"  2. Keep only the dependency and build files in the job folder upload:\n"
+        f"       exclude='*', include='Dockerfile, requirements.txt, init.R, ...'\n"
+        f"  3. Run the code from the project space, e.g.\n"
+        f"       command=\"cd /mnt/wdrv/<path> && <your current command>\"\n"
+        f"  <path> is any location in the project space you choose; acc://{project_slug}/<path> is "
+        f"available in the job at /mnt/wdrv/<path>.\n"
+        f"Why the dependency files stay in the job folder: the container image is built from the job "
+        f"folder before the job starts, so /mnt/wdrv is not available at build time. Include patterns "
+        f"override exclude patterns, which is why exclude='*' plus include works.\n"
+        f"Dependency and build files to keep (examples, not a complete list; keep any file your "
+        f"language, package manager or build tool reads to set up the environment):\n"
+        f"{DEPENDENCY_FILE_EXAMPLES}"
+    )
+
+
 @lru_cache(maxsize=None)
 def push_folder_job(directory, include=None, exclude=None):
     server_url = get_server_url()
@@ -135,6 +205,12 @@ def push_folder_job(directory, include=None, exclude=None):
 
     if os.path.isfile(f'{repo_dir}/wkube.py'):
         os.remove(f'{repo_dir}/wkube.py')
+
+    try:
+        check_job_folder_size(repo_dir, directory, project_slug)
+    except ValueError:
+        shutil.rmtree(repo_dir, ignore_errors=True)
+        raise
 
     manifest = {"type": "cas_manifest", "files": []}
     
