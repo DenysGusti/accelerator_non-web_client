@@ -104,7 +104,7 @@ jobs:
             GUI_NAME="accli-gui-windows.exe"
             pyinstaller --noconsole --onefile --icon accli/acc_logo.ico --name "$GUI_NAME" --collect-all accli accli/gui.py
           else
-            pip install dist/*.whl pyinstaller
+            pip install dist/*.whl pyinstaller pillow
             GUI_NAME="accli-gui-macos"
             pyinstaller --noconsole --onefile --icon accli/acc_logo.png --name "$GUI_NAME" --collect-all accli accli/gui.py
           fi
