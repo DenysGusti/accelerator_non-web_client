@@ -1136,7 +1136,7 @@ def configure_windows_explorer_drive_label(drive_root: str, label: str = ""):
     Set the Windows Explorer MountPoints2 label for \\127.0.0.1\! and broadcast shell notifications
     so Explorer displays the project/share name instead of a generic 'Network Drive (W:)'.
     """
-    display_label = f"{label} (\\\\127.0.0.1)" if label else "! (\\\\127.0.0.1)"
+    display_label = f"Accelerator ({label})" if label else "Accelerator"
     try:
         import winreg
         for subkey in ("##127.0.0.1#!", "##127.0.0.1#!#"):
