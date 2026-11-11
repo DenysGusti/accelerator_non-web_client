@@ -1132,7 +1132,7 @@ def configure_windows_nfs_drive_cache(drive_str: str):
 
 
 def configure_windows_explorer_drive_label(drive_root: str, label: str = ""):
-    """
+    r"""
     Set the Windows Explorer MountPoints2 label for \\127.0.0.1\! and broadcast shell notifications
     so Explorer displays the project/share name instead of a generic 'Network Drive (W:)'.
     """
