@@ -7,6 +7,8 @@ from pathlib import Path
 from datetime import datetime
 
 # Windows Shell Notification constants
+SHCNE_MKDIR = 0x00000008
+SHCNE_RMDIR = 0x00000010
 SHCNE_UPDATEDIR = 0x00001000
 SHCNF_PATHW = 0x0005
 
@@ -62,10 +64,18 @@ def get_open_explorer_paths(script_path: Path, mount_point: str) -> list[str]:
     return []
 
 
-def notify_explorer(script_path: Path, mount_point: str, path_str: str):
+def notify_explorer(script_path: Path, mount_point: str, path_str: str, removed_dirs: list[str] | None = None, added_dirs: list[str] | None = None):
     """Notifies Windows Shell and refreshes Explorer windows for path_str."""
     log(f"Broadcasting SHChangeNotify on '{path_str}'...")
     try:
+        if removed_dirs:
+            for dname in removed_dirs:
+                child_dir = str(Path(path_str) / dname)
+                ctypes.windll.shell32.SHChangeNotify(SHCNE_RMDIR, SHCNF_PATHW, child_dir, None)
+        if added_dirs:
+            for dname in added_dirs:
+                child_dir = str(Path(path_str) / dname)
+                ctypes.windll.shell32.SHChangeNotify(SHCNE_MKDIR, SHCNF_PATHW, child_dir, None)
         ctypes.windll.shell32.SHChangeNotify(
             SHCNE_UPDATEDIR,
             SHCNF_PATHW,
@@ -191,14 +201,23 @@ def run_watcher(mount_point: str, interval: float):
                 dpath = Path(dir_str)
                 current_state = scan_directory_state(dpath)
                 if current_state is None:
+                    if dir_str in cached_states:
+                        del cached_states[dir_str]
+                        parent_str = str(dpath.parent)
+                        log(f"Directory '{dir_str}' disappeared -> notifying shell and refreshing '{parent_str}'")
+                        notify_explorer(script_path, mount_point, parent_str, removed_dirs=[dpath.name])
                     continue
 
                 last_state = cached_states.get(dir_str)
                 if last_state is not None:
                     if current_state != last_state:
+                        old_keys = set(last_state.keys())
+                        new_keys = set(current_state.keys())
+                        removed_dirs = [k for k in (old_keys - new_keys) if last_state[k][0]]
+                        added_dirs = [k for k in (new_keys - old_keys) if current_state[k][0]]
                         diff_summary = describe_changes(last_state, current_state)
                         log(f"Change detected in '{dir_str}' -> {diff_summary}")
-                        notify_explorer(script_path, mount_point, dir_str)
+                        notify_explorer(script_path, mount_point, dir_str, removed_dirs=removed_dirs, added_dirs=added_dirs)
                         cached_states[dir_str] = current_state
                 else:
                     cached_states[dir_str] = current_state

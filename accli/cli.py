@@ -1107,6 +1107,30 @@ def ensure_nfs_daemon_stable(timeout: float) -> bool:
     return wait_for_nfs_portmapper("127.0.0.1", 111, timeout)
 
 
+def configure_windows_nfs_drive_cache(drive_str: str):
+    """
+    Configure per-drive Windows Client for NFS registry settings in HKCU before mounting.
+    Disables NfsRdr per-drive lookup/readdir/attribute caching so renamed or recreated
+    directories do not serve stale NFS filehandles from the Windows kernel redirector cache.
+    """
+    letter = drive_str.strip().rstrip(":\\/").upper()
+    if len(letter) != 1 or not letter.isalpha():
+        return
+    try:
+        import winreg
+        base_key_path = f"Software\\Microsoft\\ClientForNFS\\CurrentVersion\\Persistent\\{letter}"
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, base_key_path, 0, winreg.KEY_SET_VALUE) as k:
+            winreg.SetValueEx(k, "NFSLookup", 0, winreg.REG_DWORD, 0)
+            winreg.SetValueEx(k, "NFSReaddir", 0, winreg.REG_DWORD, 0)
+        cache_key_path = f"{base_key_path}\\Cache"
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, cache_key_path, 0, winreg.KEY_SET_VALUE) as ck:
+            winreg.SetValueEx(ck, "FileAttributeCache", 0, winreg.REG_DWORD, 0)
+            winreg.SetValueEx(ck, "AttributeTimeDelta", 0, winreg.REG_DWORD, 1)
+            winreg.SetValueEx(ck, "RemoteWriteCache", 0, winreg.REG_DWORD, 0)
+    except Exception:
+        pass
+
+
 def map_windows_network_drive(mount_point_abs, max_attempts: int) -> tuple[bool, str]:
     """
     Attempt to map the NFS share to the requested drive letter using mount.exe.
@@ -1117,6 +1141,7 @@ def map_windows_network_drive(mount_point_abs, max_attempts: int) -> tuple[bool,
     target_str = str(mount_point_abs).rstrip("\\/")
     if re.match(r"^[a-zA-Z]$", target_str):
         target_str += ":"
+    configure_windows_nfs_drive_cache(target_str)
 
     mount_cmd = [
         "C:\\Windows\\System32\\mount.exe",
